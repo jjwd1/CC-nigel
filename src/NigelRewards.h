@@ -13,7 +13,7 @@ namespace RLGC {
 				return 0;
 
 			Vec ballRelPos = state.ball.pos - player.pos;
-			float horizDist = Vec(ballRelPos.x, ballRelPos.y, 0).Length();
+			float horizDist = ballRelPos.Length2D();
 			float vertDist = ballRelPos.z;
 
 			// Ball should be above the car (z ~80-300) and close horizontally (<250)

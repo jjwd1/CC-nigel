@@ -109,7 +109,7 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 				float ballDist = player.pos.Dist(state.ball.pos);
 				Vec ballRel = state.ball.pos - player.pos;
 				bool ballAbove = (ballRel.z > 60 && ballRel.z < 300);
-				float horizDist = Vec(ballRel.x, ballRel.y, 0).Length();
+				float horizDist = ballRel.Length2D();
 
 				// Ground dribble: on ground, ball balanced on car
 				bool groundDribble = player.isOnGround && ballAbove && horizDist < 250;
