@@ -9,39 +9,52 @@
 #include <RLGymCPP/StateSetters/KickoffState.h>
 #include <RLGymCPP/StateSetters/RandomState.h>
 #include <RLGymCPP/ActionParsers/DefaultAction.h>
+#include "NigelRewards.h"
 
 using namespace GGL; // GigaLearn
 using namespace RLGC; // RLGymCPP
 
 // Create the RLGymCPP environment for each of our games
 EnvCreateResult EnvCreateFunc(int index) {
-	// These are ok rewards that will produce a scoring bot in ~100m steps
+	// Nigel skillbot rewards: prioritizes dribbles, aerials, flip resets, and mechanical play
 	std::vector<WeightedReward> rewards = {
-		// Movement
-		{ new AirReward(), 0.10f },
+		// Movement - slightly boosted for mechanical play
+		{ new AirReward(), 0.15f },
 		{ new SpeedReward(), 0.3f },
-		{ new WavedashReward(), 0.5f },
+		{ new WavedashReward(), 0.8f },
 
-		// Player-ball
+		// Dribbling & ball carry - core of the skillbot identity
+		{ new GroundDribbleReward(), 18.0f },
+		{ new AirDribbleReward(300.0f, 300.0f), 25.0f },
+		{ new BallCarryReward(), 12.0f },
+		{ new AerialPossessionReward(400.0f), 8.0f },
+
+		// Flip resets - big event reward to incentivize this rare mechanic
+		{ new FlipResetReward(), 60.0f },
+
+		// Touch quality - favor controlled touches over power shots
+		{ new ControlledTouchReward(), 10.0f },
+		{ new StrongTouchReward(20, 100), 8 },
+		{ new TouchBallReward(), 0.5f },
+		{ new TouchAccelReward(), 0.05f },
+
+		// Player-ball approach
 		{ new FaceBallReward(), 0.8f },
 		{ new VelocityPlayerToBallReward(), 5.f },
-		{ new StrongTouchReward(20, 100), 50 },
-		{ new TouchBallReward(), 0.3f },
-		{ new TouchAccelReward(), 0.1f },
 
-		// Ball-goal
+		// Ball-goal - still want to score
 		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 2.0f },
 
-		// Boost
-		{ new PickupBoostReward(), 18.f },
-		{ new SaveBoostReward(), 0.4f },
+		// Boost - balanced management
+		{ new PickupBoostReward(), 12.f },
+		{ new SaveBoostReward(), 0.6f },
 
-		// Game events
-		{ new ZeroSumReward(new BumpReward(), 0.5f), 20 },
-		{ new ZeroSumReward(new DemoReward(), 0.5f), 80 },
+		// Game events - goal stays high, demos/bumps heavily reduced
+		{ new ZeroSumReward(new BumpReward(), 0.5f), 3 },
+		{ new ZeroSumReward(new DemoReward(), 0.5f), 5 },
 		{ new GoalReward(), 150 },
 		{ new SaveReward(), 0.3f },
-		{ new ShotReward(), 0.6f },
+		{ new ShotReward(), 0.8f },
 		{ new AssistReward(), 0.0f },
 	};
 
@@ -91,6 +104,34 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 
 				if (player.ballTouchedStep)
 					report.AddAvg("Player/Touch Height", state.ball.pos.z);
+
+				// Nigel skill metrics
+				float ballDist = player.pos.Dist(state.ball.pos);
+				Vec ballRel = state.ball.pos - player.pos;
+				bool ballAbove = (ballRel.z > 60 && ballRel.z < 300);
+				float horizDist = Vec(ballRel.x, ballRel.y, 0).Length();
+
+				// Ground dribble: on ground, ball balanced on car
+				bool groundDribble = player.isOnGround && ballAbove && horizDist < 250;
+				report.AddAvg("Nigel/Ground Dribble Ratio", groundDribble);
+
+				// Air dribble: both in air, ball close
+				bool airDribble = !player.isOnGround && player.pos.z > 300
+					&& state.ball.pos.z > 300 && ballDist < 300;
+				report.AddAvg("Nigel/Air Dribble Ratio", airDribble);
+
+				// Aerial possession: in air with ball nearby
+				bool aerialPoss = !player.isOnGround && ballDist < 400;
+				report.AddAvg("Nigel/Aerial Possession Ratio", aerialPoss);
+
+				// Flip reset detection
+				if (player.prev) {
+					bool flipReset = !player.isOnGround
+						&& (player.prev->hasDoubleJumped || player.prev->hasFlipped)
+						&& !player.hasDoubleJumped && !player.hasFlipped
+						&& player.ballTouchedStep;
+					report.AddAvg("Nigel/Flip Reset Ratio", flipReset);
+				}
 			}
 		}
 
@@ -133,17 +174,14 @@ int main(int argc, char* argv[]) {
 	cfg.ppo.batchSize = tsPerItr;
 	cfg.ppo.miniBatchSize = 50'000; // Lower this if too much VRAM is being allocated
 
-	// Using 2 epochs seems pretty optimal when comparing time training to skill
-	// Perhaps 1 or 3 is better for you, test and find out!
-	cfg.ppo.epochs = 1;
+	// 2 epochs for more stable learning of complex mechanics
+	cfg.ppo.epochs = 2;
 
-	// This scales differently than "ent_coef" in other frameworks
-	// This is the scale for normalized entropy, which means you won't have to change it if you add more actions
-	cfg.ppo.entropyScale = 0.035f;
+	// Higher entropy encourages exploration of dribbles/aerials/flip resets
+	cfg.ppo.entropyScale = 0.045f;
 
-	// Rate of reward decay
-	// Starting low tends to work out
-	cfg.ppo.gaeGamma = 0.95;
+	// Higher gamma for longer-horizon play (dribble sequences take many steps)
+	cfg.ppo.gaeGamma = 0.985;
 
 	// Good learning rate to start
 	cfg.ppo.policyLR = 1.5e-4;
