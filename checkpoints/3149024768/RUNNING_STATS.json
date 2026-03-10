@@ -1,0 +1,10 @@
+{
+    "return_stat": {
+        "count": 9148800,
+        "mean": 70.54984125900127,
+        "var": 10163735040.399767
+    },
+    "run_id": "lhcpjk25",
+    "total_iterations": 60992,
+    "total_timesteps": 3149024768
+}
