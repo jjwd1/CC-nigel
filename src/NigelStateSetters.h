@@ -156,6 +156,64 @@ namespace RLGC {
 		}
 	};
 
+	// Ball floating in air, car on ground — aerial practice for loose balls.
+	// The bot must jump, boost upward, and hit the ball.
+	class LooseAerialBallState : public StateSetter {
+	public:
+		void ResetArena(Arena* arena) override {
+			arena->ResetToRandomKickoff();
+			auto cars = GetCarsVec(arena);
+			if (cars.empty()) return;
+
+			// Ball in the air at a reachable height
+			float ballX = RandFloat(-2500, 2500);
+			float ballY = RandFloat(-3000, 3000);
+			float ballZ = RandFloat(400, 1200);
+			// Ball with some slow drift (not stationary, more realistic)
+			float ballVx = RandFloat(-300, 300);
+			float ballVy = RandFloat(-300, 300);
+			float ballVz = RandFloat(-200, 200); // Slight up/down drift
+
+			BallState bs = {};
+			bs.pos = { ballX, ballY, ballZ };
+			bs.vel = { ballVx, ballVy, ballVz };
+			bs.angVel = { 0, 0, 0 };
+			arena->ball->SetState(bs);
+
+			// Car on ground, some distance from ball, facing roughly toward it
+			float carDist = RandFloat(800, 2000);
+			float carAngle = RandFloat((float)-M_PI, (float)M_PI);
+			float carX = ballX + cosf(carAngle) * carDist;
+			float carY = ballY + sinf(carAngle) * carDist;
+			// Clamp to field bounds
+			carX = RS_CLAMP(carX, -3800.0f, 3800.0f);
+			carY = RS_CLAMP(carY, -4800.0f, 4800.0f);
+
+			// Face toward ball
+			float yaw = atan2f(ballY - carY, ballX - carX);
+
+			CarState cs = {};
+			cs.pos = { carX, carY, 17 };
+			cs.vel = { cosf(yaw) * RandFloat(200, 800), sinf(yaw) * RandFloat(200, 800), 0 };
+			cs.angVel = { 0, 0, 0 };
+			cs.rotMat = Angle(yaw, 0, 0).ToRotMat();
+			cs.boost = RandFloat(40, 100);
+			cs.isOnGround = true;
+			cars[0]->SetState(cs);
+
+			if (cars.size() > 1) {
+				CarState opp = {};
+				float oppSide = (cars[1]->team == Team::BLUE) ? -1.0f : 1.0f;
+				opp.pos = { RandFloat(-1000, 1000), oppSide * 4500, 17 };
+				opp.vel = { 0, 0, 0 };
+				opp.rotMat = Angle(0, 0, 0).ToRotMat();
+				opp.boost = 33;
+				opp.isOnGround = true;
+				cars[1]->SetState(opp);
+			}
+		}
+	};
+
 	// Ball rolling toward car — catch & dribble practice
 	class BallRollingToCarState : public StateSetter {
 	public:

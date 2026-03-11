@@ -31,6 +31,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new BallCarryReward(), 1.0f },                // Ball above car (ground or air)
 		{ new DribbleToGoalReward(), 1.5f },            // Carry ball toward opponent goal (was 2.0)
 		{ new FlickReward(), 50.0f },                   // Launch ball off car with flip (event)
+		{ new FlickWhenPressuredReward(), 40.0f },      // Flick when opponent diving in / toward goal
 
 		// --- Wall play (bridge from ground to aerial) ---
 		{ new WallPlayReward(), 2.0f },                  // On wall near ball (continuous, NEW)
@@ -38,6 +39,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 
 		// --- Aerial mechanics ---
 		// Boosted to incentivize aerial play over ground dribbling.
+		{ new GoForAerialReward(400.0f), 3.0f },       // Move toward loose balls in the air
 		{ new AirDribbleReward(400.0f, 150.0f), 5.0f }, // Carry ball in air (was 2.0, lowered minHeight 250->150)
 		{ new AerialTouchReward(200.0f), 20.0f },       // Touch ball while high (was 15, lowered minHeight 250->200)
 		{ new AerialPossessionReward(500.0f), 1.5f },    // Stay near ball in air (was 0.75)
@@ -71,6 +73,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		// --- Boost management ---
 		{ new PickupBoostReward(), 3.0f },              // Collect boost pads (event)
 		{ new SaveBoostReward(), 0.3f },                // Don't waste all boost (continuous)
+		{ new LowBoostAerialPenalty(30.0f), 2.0f },    // Penalize going aerial with low boost
 
 		// --- Game events - these must dominate to prevent loops ---
 		{ new GoalReward(), 300.0f },                   // Score goals (THE objective)
@@ -87,19 +90,20 @@ EnvCreateResult EnvCreateFunc(int index) {
 	};
 
 	// === STATE SETTERS ===
-	// Rebalanced: wall play + aerial progression.
-	// Ground dribble already learned. Push wall → aerial → air dribble pipeline.
-	//   20% kickoff (normal gameplay + kickoff flip practice)
-	//   10% ball on car (ground dribble/flick — reduced, already learned)
-	//   20% wall ball (car near wall, ball at height — learn to drive up walls, NEW)
-	//   20% air dribble setup (already airborne near ball)
+	// Full mechanical progression: ground → wall → aerial → air dribble
+	//   15% kickoff (normal gameplay + kickoff flip practice)
+	//   10% ball on car (ground dribble/flick)
+	//   15% wall ball (drive up walls, wall-to-air)
+	//   15% air dribble setup (already airborne near ball)
+	//   15% loose aerial ball (ball floating in air, car on ground — GO UP)
 	//   15% ball rolling to car (catch & carry practice)
 	//   15% random (general adaptation)
 	auto stateSetter = new CombinedState({
-		{ new KickoffState(), 20.0f },
+		{ new KickoffState(), 15.0f },
 		{ new BallOnCarState(), 10.0f },
-		{ new WallBallState(), 20.0f },
-		{ new AirDribbleSetup(), 20.0f },
+		{ new WallBallState(), 15.0f },
+		{ new AirDribbleSetup(), 15.0f },
+		{ new LooseAerialBallState(), 15.0f },
 		{ new BallRollingToCarState(), 15.0f },
 		{ new RandomState(true, true, true), 15.0f },
 	});

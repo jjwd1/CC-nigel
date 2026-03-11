@@ -401,6 +401,141 @@ namespace RLGC {
 	};
 
 	// =========================================================================
+	// Flick when pressured: big bonus for flicking when opponent is close.
+	// Teaches the bot to flick over diving opponents or toward goal under pressure.
+	// =========================================================================
+	class FlickWhenPressuredReward : public Reward {
+	public:
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			if (!player.prev || !state.prev)
+				return 0;
+
+			// Was the ball on the car last step?
+			Vec prevBallRel = state.prev->ball.pos - player.prev->pos;
+			bool ballWasOnCar = player.prev->isOnGround && prevBallRel.Length2D() < 300
+				&& prevBallRel.z > 40 && prevBallRel.z < 350;
+			if (!ballWasOnCar)
+				return 0;
+
+			// Did the player jump or flip?
+			bool jumped = !player.isOnGround && player.prev->isOnGround;
+			if (!jumped && !player.isFlipping)
+				return 0;
+
+			// Did the ball gain upward velocity? (actual flick)
+			float ballUpVelGain = state.ball.vel.z - state.prev->ball.vel.z;
+			if (ballUpVelGain < 200)
+				return 0;
+
+			// Find closest opponent
+			float closestOppDist = 99999;
+			float oppSpeedToward = 0;
+			for (auto& p : state.players) {
+				if (p.team == player.team)
+					continue;
+				float d = p.pos.Dist(player.pos);
+				if (d < closestOppDist) {
+					closestOppDist = d;
+					Vec dirToMe = (player.pos - p.pos).Normalized();
+					oppSpeedToward = p.vel.Dot(dirToMe);
+				}
+			}
+
+			float reward = 0;
+
+			// Opponent close (< 1500) and rushing in — flick is a great choice
+			if (closestOppDist < 1500 && oppSpeedToward > 200) {
+				float pressureScore = (1.0f - closestOppDist / 1500.0f);
+				float rushScore = RS_MIN(1.0f, oppSpeedToward / 1500.0f);
+				reward += pressureScore * rushScore;
+			}
+
+			// Bonus: ball heading toward opponent goal after flick
+			Vec goalDir = (player.team == Team::BLUE) ?
+				CommonValues::ORANGE_GOAL_BACK : CommonValues::BLUE_GOAL_BACK;
+			Vec ballToGoal = (goalDir - state.ball.pos).Normalized();
+			float goalAlignment = RS_MAX(0, ballToGoal.Dot(state.ball.vel.Normalized()));
+			reward += goalAlignment * 0.5f;
+
+			return reward;
+		}
+	};
+
+	// =========================================================================
+	// Go for aerial: rewards moving upward toward a ball that's high in the air.
+	// Teaches the bot to actually jump/boost toward loose aerial balls instead
+	// of watching them float overhead. Continuous reward that scales with
+	// how well the bot is closing distance to an elevated ball.
+	// =========================================================================
+	class GoForAerialReward : public Reward {
+	public:
+		float minBallHeight;
+		GoForAerialReward(float minBallHeight = 400.0f) : minBallHeight(minBallHeight) {}
+
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			// Ball must be meaningfully in the air
+			if (state.ball.pos.z < minBallHeight)
+				return 0;
+
+			// Don't reward if already covered by AirDribbleReward (ball on car in air)
+			float ballDist = player.pos.Dist(state.ball.pos);
+			if (ballDist < 200 && !player.isOnGround)
+				return 0;
+
+			// Ball within reachable range
+			if (ballDist > 2500)
+				return 0;
+
+			// Must be moving toward ball
+			Vec dirToBall = (state.ball.pos - player.pos).Normalized();
+			float speedToBall = player.vel.Dot(dirToBall);
+			if (speedToBall < 100)
+				return 0;
+
+			float velScore = RS_MIN(1.0f, speedToBall / 1500.0f);
+			float distScore = 1.0f - (ballDist / 2500.0f);
+
+			// Bonus for actually being airborne and going up toward it
+			float airBonus = 0;
+			if (!player.isOnGround && player.vel.z > 100) {
+				airBonus = RS_MIN(1.0f, player.vel.z / 1000.0f) * 0.5f;
+			}
+
+			return velScore * distScore + airBonus;
+		}
+	};
+
+	// =========================================================================
+	// Low boost aerial penalty: penalize committing to wall/aerial play with
+	// very low boost. Teaches the bot to grab boost before going airborne.
+	// =========================================================================
+	class LowBoostAerialPenalty : public Reward {
+	public:
+		float boostThreshold;
+		LowBoostAerialPenalty(float boostThreshold = 30.0f) : boostThreshold(boostThreshold) {}
+
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			// Only penalize when airborne (not on ground) and elevated
+			if (player.isOnGround || player.pos.z < 300)
+				return 0;
+
+			// Only penalize when boost is very low
+			if (player.boost > boostThreshold)
+				return 0;
+
+			// Scale penalty by height — higher up with no boost is worse
+			float heightPenalty = RS_MIN(1.0f, player.pos.z / 1000.0f);
+
+			// Slight forgiveness if very close to ball (committed to a touch)
+			float ballDist = player.pos.Dist(state.ball.pos);
+			if (ballDist < 200)
+				return -0.2f * heightPenalty; // Small penalty, you're about to touch
+
+			return -1.0f * heightPenalty;
+		}
+	};
+
+	// =========================================================================
 	// Kickoff reward: rewards flipping toward the ball during kickoff
 	// In RL, flipping on kickoff is fundamental — it gets you to the ball
 	// faster and with more momentum than just driving.
