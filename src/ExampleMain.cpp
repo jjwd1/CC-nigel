@@ -29,17 +29,17 @@ EnvCreateResult EnvCreateFunc(int index) {
 		// so accumulated dribble reward doesn't dwarf the one-time goal reward.
 		// At tickSkip=8, ~15 steps/sec. A 3-second dribble should earn ~100-150,
 		// comparable to but less than a goal (300).
-		{ new GroundDribbleReward(), 3.0f },            // Keep ball balanced on car
-		{ new BallCarryReward(), 2.0f },                // Ball above car (ground or air)
-		{ new DribbleToGoalReward(), 4.0f },            // Carry ball toward opponent goal
+		{ new GroundDribbleReward(), 1.5f },            // Keep ball balanced on car
+		{ new BallCarryReward(), 1.0f },                // Ball above car (ground or air)
+		{ new DribbleToGoalReward(), 2.0f },            // Carry ball toward opponent goal
 		{ new FlickReward(), 50.0f },                   // Launch ball off car with flip (event)
 
 		// --- Aerial mechanics ---
 		// Also continuous — keep low to avoid "hover near ball forever" loop
-		{ new AirDribbleReward(350.0f, 250.0f), 4.0f },    // Carry ball in air
+		{ new AirDribbleReward(350.0f, 250.0f), 2.0f },    // Carry ball in air
 		{ new AerialTouchReward(250.0f), 15.0f },           // Touch ball while high (event)
-		{ new AerialPossessionReward(500.0f), 1.5f },       // Stay near ball in air
-		{ new BallHeightNearCarReward(600.0f), 1.0f },      // Ball high with car nearby
+		{ new AerialPossessionReward(500.0f), 0.75f },      // Stay near ball in air
+		{ new BallHeightNearCarReward(600.0f), 0.5f },      // Ball high with car nearby
 
 		// --- Flip resets ---
 		{ new FlipResetReward(), 60.0f },               // Get a flip reset (rare, big event)
@@ -57,14 +57,14 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new WavedashReward(), 0.5f },                 // Wavedash detection (event)
 
 		// --- Approach & orientation ---
-		{ new FaceBallReward(), 0.3f },                 // Face toward ball (continuous)
-		{ new VelocityPlayerToBallReward(), 2.0f },     // Move toward ball (continuous)
+		{ new FaceBallReward(), 0.15f },                // Face toward ball (continuous)
+		{ new VelocityPlayerToBallReward(), 1.0f },     // Move toward ball (continuous)
 
 		// --- Ball toward goal (zero-sum so opponent is penalized) ---
-		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 4.0f },
+		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 2.0f },
 
 		// --- Boost management ---
-		{ new PickupBoostReward(), 6.0f },              // Collect boost pads (event)
+		{ new PickupBoostReward(), 3.0f },              // Collect boost pads (event)
 		{ new SaveBoostReward(), 0.3f },                // Don't waste all boost (continuous)
 
 		// --- Game events - these must dominate to prevent loops ---
@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
 	LearnerConfig cfg = {};
 	cfg.checkpointFolder = "../../../checkpoints";
 
-	cfg.deviceType = LearnerDeviceType::CPU;
+	cfg.deviceType = LearnerDeviceType::GPU_CUDA;
 
 	cfg.tickSkip = 8;
 	cfg.actionDelay = cfg.tickSkip - 1;
