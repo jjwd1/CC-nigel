@@ -328,4 +328,122 @@ namespace RLGC {
 			return heightScore * distScore;
 		}
 	};
+
+	// =========================================================================
+	// Wall play: continuous reward for being on the wall near the ball.
+	// Encourages the bot to actually drive up walls instead of staying on ground.
+	// Uses position-based wall detection (isOnGround + high up + near wall edge).
+	// =========================================================================
+	class WallPlayReward : public Reward {
+	public:
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			// Detect "on wall": wheels on surface, elevated, near a wall edge
+			// Side walls at x=±4096, back walls at y=±5120
+			if (!player.isOnGround || player.pos.z < 200)
+				return 0;
+
+			bool nearSideWall = fabsf(player.pos.x) > 3500;
+			bool nearBackWall = fabsf(player.pos.y) > 4600;
+			if (!nearSideWall && !nearBackWall)
+				return 0;
+
+			// Must be near the ball for this to be useful
+			float ballDist = player.pos.Dist(state.ball.pos);
+			if (ballDist > 1000)
+				return 0;
+
+			// Scale by height (higher on wall = better) and closeness to ball
+			float heightScore = RS_MIN(1.0f, player.pos.z / 1500.0f);
+			float distScore = 1.0f - (ballDist / 1000.0f);
+
+			return heightScore * distScore;
+		}
+	};
+
+	// =========================================================================
+	// Wall to air transition: event reward for jumping off a wall toward the ball.
+	// This is the critical skill that bridges wall play to aerial play.
+	// Detects: was on wall last step → now airborne → ball is nearby and above.
+	// =========================================================================
+	class WallToAirReward : public Reward {
+	public:
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			if (!player.prev)
+				return 0;
+
+			// Was on wall last step?
+			bool prevOnWall = player.prev->isOnGround && player.prev->pos.z > 200 &&
+				(fabsf(player.prev->pos.x) > 3500 || fabsf(player.prev->pos.y) > 4600);
+
+			if (!prevOnWall)
+				return 0;
+
+			// Now airborne?
+			if (player.isOnGround)
+				return 0;
+
+			// Ball should be nearby and at a decent height
+			float ballDist = player.pos.Dist(state.ball.pos);
+			if (ballDist > 800 || state.ball.pos.z < 200)
+				return 0;
+
+			// Moving toward ball?
+			Vec dirToBall = (state.ball.pos - player.pos).Normalized();
+			float speedToBall = player.vel.Dot(dirToBall);
+			if (speedToBall < 0)
+				return 0;
+
+			float distScore = 1.0f - (ballDist / 800.0f);
+			float velScore = RS_MIN(1.0f, speedToBall / 1500.0f);
+
+			return distScore * (0.5f + 0.5f * velScore);
+		}
+	};
+
+	// =========================================================================
+	// Kickoff reward: rewards flipping toward the ball during kickoff
+	// In RL, flipping on kickoff is fundamental — it gets you to the ball
+	// faster and with more momentum than just driving.
+	// =========================================================================
+	class KickoffReward : public Reward {
+	public:
+		bool wasKickoff = false;
+
+		virtual void Reset(const GameState& initialState) override {
+			wasKickoff = true;
+		}
+
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			if (!wasKickoff)
+				return 0;
+
+			// Not a kickoff episode if ball isn't at center
+			if (fabsf(state.ball.pos.x) > 50 || fabsf(state.ball.pos.y) > 50) {
+				wasKickoff = false;
+				return 0;
+			}
+
+			// Kickoff is over once ball has been hit (gains velocity).
+			// This is more reliable than lastTouchCarID (which may be stale)
+			// or ballTouchedStep (which only checks one player).
+			if (state.ball.vel.Length() > 100) {
+				wasKickoff = false;
+				return 0;
+			}
+
+			float reward = 0;
+
+			// Reward speed toward ball (flip gives ~1400+ speed vs ~1200 driving)
+			Vec dirToBall = (state.ball.pos - player.pos).Normalized();
+			float speedToBall = player.vel.Dot(dirToBall);
+			reward += RS_MAX(0, speedToBall / CommonValues::CAR_MAX_SPEED);
+
+			// Bonus for flipping (the key mechanic we want to teach)
+			if (player.isFlipping || player.hasFlipped) {
+				reward += 1.0f;
+			}
+
+			return reward;
+		}
+	};
 }

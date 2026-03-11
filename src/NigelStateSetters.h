@@ -104,6 +104,58 @@ namespace RLGC {
 		}
 	};
 
+	// Car on ground near wall, ball on the wall surface rolling upward.
+	// Forces the bot to drive up the wall and jump off toward the ball.
+	// This is the natural bridge between ground play and aerials.
+	class WallBallState : public StateSetter {
+	public:
+		void ResetArena(Arena* arena) override {
+			arena->ResetToRandomKickoff();
+			auto cars = GetCarsVec(arena);
+			if (cars.empty()) return;
+
+			// Pick a random side wall
+			float side = (RandFloat(0, 1) > 0.5f) ? 1.0f : -1.0f;
+			float y = RandFloat(-3000, 3000);
+
+			// Car on ground near the wall, facing toward it
+			float yaw = -side * (float)M_PI * 0.5f; // Face toward wall
+			CarState cs = {};
+			cs.pos = { side * 3200, y, 17 };
+			cs.vel = { side * RandFloat(500, 1000), 0, 0 }; // Driving toward wall
+			cs.angVel = { 0, 0, 0 };
+			cs.rotMat = Angle(yaw, 0, 0).ToRotMat();
+			cs.boost = RandFloat(50, 100);
+			cs.isOnGround = true;
+			cars[0]->SetState(cs);
+
+			// Ball ON the wall surface with upward velocity.
+			// Wall at x=±4096, ball radius ~93, so ball center at x=±(4096-93)=±4003.
+			// Use ±3990 to avoid clipping into wall — physics will settle it.
+			// Give upward velocity so ball rolls up the wall and stays there
+			// long enough for the car to drive up and reach it.
+			float ballHeight = RandFloat(200, 500);
+			float ballY = y + RandFloat(-300, 300);
+			float ballUpVel = RandFloat(400, 800); // Rolling upward on wall
+			BallState bs = {};
+			bs.pos = { side * 3990, ballY, ballHeight };
+			bs.vel = { 0, RandFloat(-200, 200), ballUpVel };
+			bs.angVel = { 0, 0, 0 };
+			arena->ball->SetState(bs);
+
+			if (cars.size() > 1) {
+				CarState opp = {};
+				float oppSide = (cars[1]->team == Team::BLUE) ? -1.0f : 1.0f;
+				opp.pos = { RandFloat(-500, 500), oppSide * 4500, 17 };
+				opp.vel = { 0, 0, 0 };
+				opp.rotMat = Angle(0, 0, 0).ToRotMat();
+				opp.boost = 33;
+				opp.isOnGround = true;
+				cars[1]->SetState(opp);
+			}
+		}
+	};
+
 	// Ball rolling toward car — catch & dribble practice
 	class BallRollingToCarState : public StateSetter {
 	public:

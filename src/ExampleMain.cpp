@@ -22,24 +22,26 @@ EnvCreateResult EnvCreateFunc(int index) {
 	// === REWARDS ===
 	// Designed to produce a mechanical skillbot:
 	//   ground dribbles -> flicks -> air dribbles -> flip resets -> goals
+	// Aerial rewards boosted relative to ground to encourage air play.
 	std::vector<WeightedReward> rewards = {
 
 		// --- Core mechanics: dribbling & ball carry ---
-		// IMPORTANT: These are continuous (per-step) rewards. Keep weights LOW
-		// so accumulated dribble reward doesn't dwarf the one-time goal reward.
-		// At tickSkip=8, ~15 steps/sec. A 3-second dribble should earn ~100-150,
-		// comparable to but less than a goal (300).
-		{ new GroundDribbleReward(), 1.5f },            // Keep ball balanced on car
+		// Reduced ground dribble weight so aerial play can compete.
+		{ new GroundDribbleReward(), 0.75f },           // Keep ball balanced on car (was 1.5)
 		{ new BallCarryReward(), 1.0f },                // Ball above car (ground or air)
-		{ new DribbleToGoalReward(), 2.0f },            // Carry ball toward opponent goal
+		{ new DribbleToGoalReward(), 1.5f },            // Carry ball toward opponent goal (was 2.0)
 		{ new FlickReward(), 50.0f },                   // Launch ball off car with flip (event)
 
+		// --- Wall play (bridge from ground to aerial) ---
+		{ new WallPlayReward(), 2.0f },                  // On wall near ball (continuous, NEW)
+		{ new WallToAirReward(), 15.0f },                // Jump off wall toward ball (event, NEW)
+
 		// --- Aerial mechanics ---
-		// Also continuous — keep low to avoid "hover near ball forever" loop
-		{ new AirDribbleReward(350.0f, 250.0f), 2.0f },    // Carry ball in air
-		{ new AerialTouchReward(250.0f), 15.0f },           // Touch ball while high (event)
-		{ new AerialPossessionReward(500.0f), 0.75f },      // Stay near ball in air
-		{ new BallHeightNearCarReward(600.0f), 0.5f },      // Ball high with car nearby
+		// Boosted to incentivize aerial play over ground dribbling.
+		{ new AirDribbleReward(400.0f, 150.0f), 5.0f }, // Carry ball in air (was 2.0, lowered minHeight 250->150)
+		{ new AerialTouchReward(200.0f), 20.0f },       // Touch ball while high (was 15, lowered minHeight 250->200)
+		{ new AerialPossessionReward(500.0f), 1.5f },    // Stay near ball in air (was 0.75)
+		{ new BallHeightNearCarReward(800.0f), 1.5f },   // Ball high with car nearby (was 0.5, wider range)
 
 		// --- Flip resets ---
 		{ new FlipResetReward(), 60.0f },               // Get a flip reset (rare, big event)
@@ -53,8 +55,11 @@ EnvCreateResult EnvCreateFunc(int index) {
 
 		// --- Movement fundamentals ---
 		{ new SpeedReward(), 0.15f },                   // Keep moving (continuous, keep tiny)
-		{ new AirReward(), 0.08f },                     // Small reward for being airborne
+		{ new AirReward(), 0.3f },                      // Reward for being airborne (was 0.08)
 		{ new WavedashReward(), 0.5f },                 // Wavedash detection (event)
+
+		// --- Kickoff ---
+		{ new KickoffReward(), 3.0f },                  // Flip toward ball on kickoff (NEW)
 
 		// --- Approach & orientation ---
 		{ new FaceBallReward(), 0.15f },                // Face toward ball (continuous)
@@ -82,16 +87,19 @@ EnvCreateResult EnvCreateFunc(int index) {
 	};
 
 	// === STATE SETTERS ===
-	// Mix of scenarios so the bot gets varied practice:
-	//   30% kickoff (normal gameplay — reduced to give more practice time)
-	//   25% ball on car (ground dribble/flick practice)
-	//   15% air dribble setup (aerial practice)
+	// Rebalanced: wall play + aerial progression.
+	// Ground dribble already learned. Push wall → aerial → air dribble pipeline.
+	//   20% kickoff (normal gameplay + kickoff flip practice)
+	//   10% ball on car (ground dribble/flick — reduced, already learned)
+	//   20% wall ball (car near wall, ball at height — learn to drive up walls, NEW)
+	//   20% air dribble setup (already airborne near ball)
 	//   15% ball rolling to car (catch & carry practice)
 	//   15% random (general adaptation)
 	auto stateSetter = new CombinedState({
-		{ new KickoffState(), 30.0f },
-		{ new BallOnCarState(), 25.0f },
-		{ new AirDribbleSetup(), 15.0f },
+		{ new KickoffState(), 20.0f },
+		{ new BallOnCarState(), 10.0f },
+		{ new WallBallState(), 20.0f },
+		{ new AirDribbleSetup(), 20.0f },
 		{ new BallRollingToCarState(), 15.0f },
 		{ new RandomState(true, true, true), 15.0f },
 	});
@@ -181,6 +189,19 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 						&& prevBallRel.z > 40 && prevBallRel.z < 350;
 					bool launched = !player.isOnGround && (state.ball.vel.z - state.prev->ball.vel.z) > 300;
 					report.AddAvg("Nigel/Flick Ratio", wasOnCar && launched);
+				}
+
+				// Wall play detection
+				bool onWall = player.isOnGround && player.pos.z > 200 &&
+					(fabsf(player.pos.x) > 3500 || fabsf(player.pos.y) > 4600);
+				report.AddAvg("Nigel/On Wall Ratio", onWall);
+
+				// Wall to air transition
+				if (player.prev) {
+					bool prevOnWall = player.prev->isOnGround && player.prev->pos.z > 200 &&
+						(fabsf(player.prev->pos.x) > 3500 || fabsf(player.prev->pos.y) > 4600);
+					bool wallToAir = prevOnWall && !player.isOnGround;
+					report.AddAvg("Nigel/Wall To Air Ratio", wallToAir);
 				}
 			}
 		}
