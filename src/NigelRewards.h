@@ -8,6 +8,18 @@ namespace RLGC {
 	// =========================================================================
 	// Ground dribble: ball balanced on/near car while driving on ground
 	// =========================================================================
+	// Helper: check if any opponent is also close to the ball (shared possession).
+	// Used to prevent cooperative ball-sharing to farm dribble rewards.
+	inline bool OpponentNearBall(const Player& player, const GameState& state, float maxDist = 400.0f) {
+		for (auto& p : state.players) {
+			if (p.team == player.team)
+				continue;
+			if (p.pos.Dist(state.ball.pos) < maxDist)
+				return true;
+		}
+		return false;
+	}
+
 	class GroundDribbleReward : public Reward {
 	public:
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
@@ -20,6 +32,10 @@ namespace RLGC {
 
 			// Ball should be above the car (z ~80-300) and close horizontally (<250)
 			if (horizDist > 250 || vertDist < 60 || vertDist > 300)
+				return 0;
+
+			// No reward if opponent is also on top of the ball (prevents co-farming)
+			if (OpponentNearBall(player, state, 300.0f))
 				return 0;
 
 			float horizScore = 1.0f - (horizDist / 250.0f);
@@ -36,6 +52,42 @@ namespace RLGC {
 			}
 
 			return horizScore * vertScore * (0.3f + 0.3f * speedBonus + 0.4f * velAlignment);
+		}
+	};
+
+	// =========================================================================
+	// Steering smoothness: penalize rapid yaw oscillation (jittering).
+	// Detects when angular velocity flips sign between steps — the car is
+	// alternating steer left/right every tick. Small penalty so it doesn't
+	// prevent legitimate sharp turns, just discourages needless oscillation.
+	// =========================================================================
+	class SteeringSmoothnessPenalty : public Reward {
+	public:
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			if (!player.prev)
+				return 0;
+
+			// Only care about ground movement (air has different controls)
+			if (!player.isOnGround)
+				return 0;
+
+			float curYawVel = player.angVel.z;
+			float prevYawVel = player.prev->angVel.z;
+
+			// Both must be significant (not just resting at ~0)
+			if (fabsf(curYawVel) < 0.3f || fabsf(prevYawVel) < 0.3f)
+				return 0;
+
+			// Sign flip = oscillation
+			bool signFlipped = (curYawVel > 0 && prevYawVel < 0) ||
+				(curYawVel < 0 && prevYawVel > 0);
+
+			if (!signFlipped)
+				return 0;
+
+			// Scale by magnitude — bigger oscillations are worse
+			float magnitude = RS_MIN(1.0f, (fabsf(curYawVel) + fabsf(prevYawVel)) / 6.0f);
+			return -magnitude;
 		}
 	};
 
@@ -258,6 +310,10 @@ namespace RLGC {
 			if (upDot < 50 || upDot > 350)
 				return 0;
 
+			// No reward if opponent is also on top of the ball
+			if (OpponentNearBall(player, state, 300.0f))
+				return 0;
+
 			// Ball must be close horizontally relative to car orientation
 			float rightDot = fabsf(player.rotMat.right.Dot(ballRelPos));
 			float forwardDot = fabsf(player.rotMat.forward.Dot(ballRelPos));
@@ -284,6 +340,10 @@ namespace RLGC {
 
 			// Ball must be above the car (actually carrying, not just chasing)
 			if (ballRelPos.z < 40 || ballRelPos.z > 350)
+				return 0;
+
+			// No reward if opponent is also near the ball
+			if (OpponentNearBall(player, state, 300.0f))
 				return 0;
 
 			// Must be moving

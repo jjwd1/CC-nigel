@@ -26,10 +26,9 @@ EnvCreateResult EnvCreateFunc(int index) {
 	std::vector<WeightedReward> rewards = {
 
 		// --- Core mechanics: dribbling & ball carry ---
-		// Reduced ground dribble weight so aerial play can compete.
-		{ new GroundDribbleReward(), 0.75f },           // Keep ball balanced on car (was 1.5)
+		{ new GroundDribbleReward(), 0.75f },           // Keep ball balanced on car
 		{ new BallCarryReward(), 1.0f },                // Ball above car (ground or air)
-		{ new DribbleToGoalReward(), 1.5f },            // Carry ball toward opponent goal (was 2.0)
+		{ new DribbleToGoalReward(), 1.5f },            // Carry ball toward opponent goal
 		{ new FlickReward(), 50.0f },                   // Launch ball off car with flip (event)
 		{ new FlickWhenPressuredReward(), 40.0f },      // Flick when opponent diving in / toward goal
 
@@ -40,7 +39,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		// --- Aerial mechanics ---
 		// Boosted to incentivize aerial play over ground dribbling.
 		{ new GoForAerialReward(400.0f), 3.0f },       // Move toward loose balls in the air
-		{ new AirDribbleReward(400.0f, 150.0f), 5.0f }, // Carry ball in air (was 2.0, lowered minHeight 250->150)
+		{ new AirDribbleReward(400.0f, 150.0f), 5.0f }, // Carry ball in air
 		{ new AerialTouchReward(200.0f), 20.0f },       // Touch ball while high (was 15, lowered minHeight 250->200)
 		{ new AerialPossessionReward(500.0f), 1.5f },    // Stay near ball in air (was 0.75)
 		{ new BallHeightNearCarReward(800.0f), 1.5f },   // Ball high with car nearby (was 0.5, wider range)
@@ -59,6 +58,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new SpeedReward(), 0.15f },                   // Keep moving (continuous, keep tiny)
 		{ new AirReward(), 0.3f },                      // Reward for being airborne (was 0.08)
 		{ new WavedashReward(), 0.5f },                 // Wavedash detection (event)
+		{ new SteeringSmoothnessPenalty(), 0.3f },      // Penalize steering jitter
 
 		// --- Kickoff ---
 		{ new KickoffReward(), 3.0f },                  // Flip toward ball on kickoff (NEW)
@@ -71,7 +71,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 2.0f },
 
 		// --- Boost management ---
-		{ new PickupBoostReward(), 3.0f },              // Collect boost pads (event)
+		{ new PickupBoostReward(), 5.0f },              // Collect boost pads (event, was 3)
 		{ new SaveBoostReward(), 0.3f },                // Don't waste all boost (continuous)
 		{ new LowBoostAerialPenalty(30.0f), 2.0f },    // Penalize going aerial with low boost
 
@@ -235,7 +235,7 @@ int main(int argc, char* argv[]) {
 	LearnerConfig cfg = {};
 	cfg.checkpointFolder = "../../../checkpoints";
 
-	cfg.deviceType = LearnerDeviceType::CPU;
+	cfg.deviceType = LearnerDeviceType::GPU_CUDA;
 
 	cfg.tickSkip = 8;
 	cfg.actionDelay = cfg.tickSkip - 1;
