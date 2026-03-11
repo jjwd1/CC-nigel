@@ -83,17 +83,17 @@ EnvCreateResult EnvCreateFunc(int index) {
 
 	// === STATE SETTERS ===
 	// Mix of scenarios so the bot gets varied practice:
-	//   40% kickoff (normal gameplay)
+	//   30% kickoff (normal gameplay — reduced to give more practice time)
 	//   25% ball on car (ground dribble/flick practice)
 	//   15% air dribble setup (aerial practice)
-	//   10% ball rolling to car (catch & carry practice)
-	//   10% random (general adaptation)
+	//   15% ball rolling to car (catch & carry practice)
+	//   15% random (general adaptation)
 	auto stateSetter = new CombinedState({
-		{ new KickoffState(), 40.0f },
+		{ new KickoffState(), 30.0f },
 		{ new BallOnCarState(), 25.0f },
 		{ new AirDribbleSetup(), 15.0f },
-		{ new BallRollingToCarState(), 10.0f },
-		{ new RandomState(true, true, true), 10.0f },
+		{ new BallRollingToCarState(), 15.0f },
+		{ new RandomState(true, true, true), 15.0f },
 	});
 
 	// Make the arena
@@ -131,8 +131,10 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 				Vec dirToBall = (state.ball.pos - player.pos).Normalized();
 				report.AddAvg("Player/Speed Towards Ball", RS_MAX(0, player.vel.Dot(dirToBall)));
 
-				if (player.ballTouchedStep)
+				if (player.ballTouchedStep) {
 					report.AddAvg("Player/Touch Height", state.ball.pos.z);
+					report.AddAvg("Player/Touch Ball Speed", state.ball.vel.Length());
+				}
 
 				// Nigel skill metrics
 				float ballDist = player.pos.Dist(state.ball.pos);
@@ -140,9 +142,19 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 				bool ballAbove = (ballRel.z > 60 && ballRel.z < 300);
 				float horizDist = ballRel.Length2D();
 
+				// Near ball: within 500 units (engagement proxy)
+				report.AddAvg("Nigel/Near Ball Ratio", ballDist < 500);
+
 				// Ground dribble detection
 				bool groundDribble = player.isOnGround && ballAbove && horizDist < 250;
 				report.AddAvg("Nigel/Ground Dribble Ratio", groundDribble);
+
+				// Dribble toward goal: dribbling while moving toward opponent goal
+				if (groundDribble) {
+					float goalY = (player.team == Team::BLUE) ? 5120.0f : -5120.0f;
+					bool movingToGoal = (goalY > 0) ? (player.vel.y > 200) : (player.vel.y < -200);
+					report.AddAvg("Nigel/Dribble To Goal Ratio", movingToGoal);
+				}
 
 				// Air dribble detection
 				bool airDribble = !player.isOnGround && player.pos.z > 300
@@ -173,8 +185,12 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 			}
 		}
 
-		if (state.goalScored)
+		if (state.goalScored) {
 			report.AddAvg("Game/Goal Speed", state.ball.vel.Length());
+			report.AddAvg("Game/Goal Scored", 1.0f);
+		} else {
+			report.AddAvg("Game/Goal Scored", 0.0f);
+		}
 	}
 }
 
