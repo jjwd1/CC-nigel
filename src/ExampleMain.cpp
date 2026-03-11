@@ -45,8 +45,9 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new BallHeightNearCarReward(800.0f), 1.5f },   // Ball high with car nearby (was 0.5, wider range)
 
 		// --- Flip resets ---
-		{ new FlipResetReward(), 60.0f },               // Get a flip reset (rare, big event)
-		{ new FlipResetFollowUpReward(), 40.0f },       // Use the regained flip after reset
+		{ new FlipResetReward(), 80.0f },               // Get a flip reset (rare, big event)
+		{ new FlipResetFollowUpReward(), 50.0f },       // Use the regained flip after reset
+		{ new ChainedFlipResetReward(), 100.0f },       // Double/triple reset chains (escalating)
 
 		// --- Touch quality ---
 		{ new ControlledTouchReward(), 5.0f },          // Gentle touches for dribble control
@@ -61,7 +62,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new SteeringSmoothnessPenalty(), 0.3f },      // Penalize steering jitter
 
 		// --- Kickoff ---
-		{ new KickoffReward(), 3.0f },                  // Flip toward ball on kickoff (NEW)
+		{ new KickoffReward(), 10.0f },                 // Flip toward ball on kickoff (was 3, bumped)
 
 		// --- Approach & orientation ---
 		{ new FaceBallReward(), 0.15f },                // Face toward ball (continuous)
@@ -73,6 +74,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		// --- Boost management ---
 		{ new PickupBoostReward(), 5.0f },              // Collect boost pads (event, was 3)
 		{ new SaveBoostReward(), 0.3f },                // Don't waste all boost (continuous)
+		{ new WasteBoostPenalty(), 0.5f },              // Don't press boost with 0 boost
 		{ new LowBoostAerialPenalty(30.0f), 2.0f },    // Penalize going aerial with low boost
 
 		// --- Game events - these must dominate to prevent loops ---
@@ -99,7 +101,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 	//   15% ball rolling to car (catch & carry practice)
 	//   15% random (general adaptation)
 	auto stateSetter = new CombinedState({
-		{ new KickoffState(), 15.0f },
+		{ new KickoffState(), 20.0f },
 		{ new BallOnCarState(), 10.0f },
 		{ new WallBallState(), 15.0f },
 		{ new AirDribbleSetup(), 15.0f },
