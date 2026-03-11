@@ -172,7 +172,7 @@ namespace RLGC {
 			// Ball with some slow drift (not stationary, more realistic)
 			float ballVx = RandFloat(-300, 300);
 			float ballVy = RandFloat(-300, 300);
-			float ballVz = RandFloat(-200, 200); // Slight up/down drift
+			float ballVz = RandFloat(0, 300); // Always drifting upward so ball stays airborne longer
 
 			BallState bs = {};
 			bs.pos = { ballX, ballY, ballZ };

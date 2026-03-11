@@ -26,9 +26,10 @@ EnvCreateResult EnvCreateFunc(int index) {
 	std::vector<WeightedReward> rewards = {
 
 		// --- Core mechanics: dribbling & ball carry ---
-		{ new GroundDribbleReward(), 0.75f },           // Keep ball balanced on car
-		{ new BallCarryReward(), 1.0f },                // Ball above car (ground or air)
-		{ new DribbleToGoalReward(), 1.5f },            // Carry ball toward opponent goal
+		// (reduced — dribbling is already the bot's strongest skill)
+		{ new GroundDribbleReward(), 0.4f },            // Keep ball balanced on car
+		{ new BallCarryReward(), 0.5f },                // Ball above car (ground or air)
+		{ new DribbleToGoalReward(), 0.8f },            // Carry ball toward opponent goal
 		{ new FlickReward(), 50.0f },                   // Launch ball off car with flip (event)
 		{ new FlickWhenPressuredReward(), 40.0f },      // Flick when opponent diving in / toward goal
 
@@ -38,8 +39,9 @@ EnvCreateResult EnvCreateFunc(int index) {
 
 		// --- Aerial mechanics ---
 		// Boosted to incentivize aerial play over ground dribbling.
-		{ new GoForAerialReward(400.0f), 3.0f },       // Move toward loose balls in the air
+		{ new GoForAerialReward(300.0f), 8.0f },       // Move toward loose balls in the air (bumped)
 		{ new AirDribbleReward(400.0f, 150.0f), 5.0f }, // Carry ball in air
+		{ new AirRollDribbleReward(400.0f, 300.0f), 1.0f }, // Air roll during air dribble
 		{ new AerialTouchReward(200.0f), 20.0f },       // Touch ball while high (was 15, lowered minHeight 250->200)
 		{ new AerialPossessionReward(500.0f), 1.5f },    // Stay near ball in air (was 0.75)
 		{ new BallHeightNearCarReward(800.0f), 1.5f },   // Ball high with car nearby (was 0.5, wider range)
@@ -59,7 +61,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new SpeedReward(), 0.15f },                   // Keep moving (continuous, keep tiny)
 		{ new AirReward(), 0.3f },                      // Reward for being airborne (was 0.08)
 		{ new WavedashReward(), 0.5f },                 // Wavedash detection (event)
-		{ new SteeringSmoothnessPenalty(), 0.3f },      // Penalize steering jitter
+		{ new SteeringSmoothnessPenalty(), 0.8f },      // Penalize steering jitter (bumped, + kickoff fix)
 
 		// --- Kickoff ---
 		{ new KickoffReward(), 10.0f },                 // Flip toward ball on kickoff (was 3, bumped)
@@ -73,9 +75,10 @@ EnvCreateResult EnvCreateFunc(int index) {
 
 		// --- Boost management ---
 		{ new PickupBoostReward(), 5.0f },              // Collect boost pads (event, was 3)
+		{ new SeekBoostReward(50.0f), 2.0f },           // Move toward nearest pad when boost low
 		{ new SaveBoostReward(), 0.3f },                // Don't waste all boost (continuous)
 		{ new WasteBoostPenalty(), 0.5f },              // Don't press boost with 0 boost
-		{ new LowBoostAerialPenalty(30.0f), 2.0f },    // Penalize going aerial with low boost
+		{ new LowBoostAerialPenalty(40.0f), 3.0f },    // Penalize going aerial with low boost (threshold 40, height 200)
 
 		// --- Game events - these must dominate to prevent loops ---
 		{ new GoalReward(), 300.0f },                   // Score goals (THE objective)
@@ -92,21 +95,21 @@ EnvCreateResult EnvCreateFunc(int index) {
 	};
 
 	// === STATE SETTERS ===
-	// Full mechanical progression: ground → wall → aerial → air dribble
+	// Shifted toward aerial practice — ground dribbling is already strong.
 	//   15% kickoff (normal gameplay + kickoff flip practice)
-	//   10% ball on car (ground dribble/flick)
+	//    5% ball on car (ground dribble/flick — reduced, already dominant)
 	//   15% wall ball (drive up walls, wall-to-air)
 	//   15% air dribble setup (already airborne near ball)
-	//   15% loose aerial ball (ball floating in air, car on ground — GO UP)
-	//   15% ball rolling to car (catch & carry practice)
+	//   25% loose aerial ball (ball floating in air — biggest gap to fill)
+	//   10% ball rolling to car (catch & carry practice)
 	//   15% random (general adaptation)
 	auto stateSetter = new CombinedState({
-		{ new KickoffState(), 20.0f },
-		{ new BallOnCarState(), 10.0f },
+		{ new KickoffState(), 15.0f },
+		{ new BallOnCarState(), 5.0f },
 		{ new WallBallState(), 15.0f },
 		{ new AirDribbleSetup(), 15.0f },
-		{ new LooseAerialBallState(), 15.0f },
-		{ new BallRollingToCarState(), 15.0f },
+		{ new LooseAerialBallState(), 25.0f },
+		{ new BallRollingToCarState(), 10.0f },
 		{ new RandomState(true, true, true), 15.0f },
 	});
 

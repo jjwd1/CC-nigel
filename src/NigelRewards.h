@@ -71,23 +71,33 @@ namespace RLGC {
 			if (!player.isOnGround)
 				return 0;
 
+			float penalty = 0;
+
+			// 1. Angular velocity oscillation (car physically turning back and forth)
 			float curYawVel = player.angVel.z;
 			float prevYawVel = player.prev->angVel.z;
 
-			// Both must be significant (not just resting at ~0)
-			if (fabsf(curYawVel) < 0.3f || fabsf(prevYawVel) < 0.3f)
-				return 0;
+			if (fabsf(curYawVel) > 0.2f && fabsf(prevYawVel) > 0.2f) {
+				bool signFlipped = (curYawVel > 0 && prevYawVel < 0) ||
+					(curYawVel < 0 && prevYawVel > 0);
+				if (signFlipped) {
+					float magnitude = RS_MIN(1.0f, (fabsf(curYawVel) + fabsf(prevYawVel)) / 6.0f);
+					penalty -= magnitude;
+				}
+			}
 
-			// Sign flip = oscillation
-			bool signFlipped = (curYawVel > 0 && prevYawVel < 0) ||
-				(curYawVel < 0 && prevYawVel > 0);
+			// 2. Steer input oscillation (catches kickoff jitter when car is stationary)
+			float curSteer = player.prevAction.steer;
+			float prevSteer = player.prev->prevAction.steer;
 
-			if (!signFlipped)
-				return 0;
+			if (fabsf(curSteer) > 0.1f && fabsf(prevSteer) > 0.1f) {
+				bool steerFlipped = (curSteer > 0 && prevSteer < 0) ||
+					(curSteer < 0 && prevSteer > 0);
+				if (steerFlipped)
+					penalty -= 0.5f;
+			}
 
-			// Scale by magnitude — bigger oscillations are worse
-			float magnitude = RS_MIN(1.0f, (fabsf(curYawVel) + fabsf(prevYawVel)) / 6.0f);
-			return -magnitude;
+			return penalty;
 		}
 	};
 
@@ -168,6 +178,40 @@ namespace RLGC {
 			float orientScore = RS_MAX(0, upDot * 0.5f + forwardDot * 0.5f);
 
 			return distScore * (0.4f + 0.3f * heightScore + 0.3f * orientScore);
+		}
+	};
+
+	// =========================================================================
+	// Air roll during air dribble: small reward for using air roll input
+	// while in an air dribble state. Teaches tornado spins and car control
+	// during aerial carries — looks stylish and improves car orientation.
+	// =========================================================================
+	class AirRollDribbleReward : public Reward {
+	public:
+		float maxDist;
+		float minHeight;
+		AirRollDribbleReward(float maxDist = 400.0f, float minHeight = 300.0f)
+			: maxDist(maxDist), minHeight(minHeight) {}
+
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			if (player.isOnGround)
+				return 0;
+
+			if (player.pos.z < minHeight || state.ball.pos.z < minHeight)
+				return 0;
+
+			float dist = player.pos.Dist(state.ball.pos);
+			if (dist > maxDist)
+				return 0;
+
+			// Must be actively rolling
+			if (fabsf(player.prevAction.roll) < 0.5f)
+				return 0;
+
+			// Scale by closeness to ball — only reward roll when maintaining the carry
+			float distScore = 1.0f - (dist / maxDist);
+
+			return distScore;
 		}
 	};
 
@@ -508,6 +552,10 @@ namespace RLGC {
 			if (player.isOnGround)
 				return 0;
 
+			// Need boost to actually reach the ball after leaving the wall
+			if (player.boost < 15)
+				return 0;
+
 			// Ball should be nearby and at a decent height
 			float ballDist = player.pos.Dist(state.ball.pos);
 			if (ballDist > 800 || state.ball.pos.z < 200)
@@ -612,10 +660,11 @@ namespace RLGC {
 			if (ballDist > 2500)
 				return 0;
 
-			// Must be moving toward ball
+			// Must be moving toward ball (gate at 0 so horizontal movement under
+			// an overhead ball still counts — the 3D direction is mostly vertical)
 			Vec dirToBall = (state.ball.pos - player.pos).Normalized();
 			float speedToBall = player.vel.Dot(dirToBall);
-			if (speedToBall < 100)
+			if (speedToBall < 0)
 				return 0;
 
 			float velScore = RS_MIN(1.0f, speedToBall / 1500.0f);
@@ -638,15 +687,20 @@ namespace RLGC {
 	class LowBoostAerialPenalty : public Reward {
 	public:
 		float boostThreshold;
-		LowBoostAerialPenalty(float boostThreshold = 30.0f) : boostThreshold(boostThreshold) {}
+		LowBoostAerialPenalty(float boostThreshold = 40.0f) : boostThreshold(boostThreshold) {}
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
-			// Only penalize when airborne (not on ground) and elevated
-			if (player.isOnGround || player.pos.z < 300)
+			if (player.boost > boostThreshold)
 				return 0;
 
-			// Only penalize when boost is very low
-			if (player.boost > boostThreshold)
+			// Detect on-wall: isOnGround + elevated + near wall edge
+			bool onWall = player.isOnGround && player.pos.z > 200 &&
+				(fabsf(player.pos.x) > 3500 || fabsf(player.pos.y) > 4600);
+
+			// Penalize being airborne and elevated
+			bool airborne = !player.isOnGround && player.pos.z > 200;
+
+			if (!onWall && !airborne)
 				return 0;
 
 			// Scale penalty by height — higher up with no boost is worse
@@ -655,9 +709,91 @@ namespace RLGC {
 			// Slight forgiveness if very close to ball (committed to a touch)
 			float ballDist = player.pos.Dist(state.ball.pos);
 			if (ballDist < 200)
-				return -0.2f * heightPenalty; // Small penalty, you're about to touch
+				return -0.2f * heightPenalty;
+
+			// Lighter penalty on wall (still has time to drop down and get boost)
+			if (onWall)
+				return -0.5f * heightPenalty;
 
 			return -1.0f * heightPenalty;
+		}
+	};
+
+	// =========================================================================
+	// Seek boost: reward moving toward the nearest available boost pad when
+	// boost is low. Teaches the bot to grab boost on the way to plays instead
+	// of driving right past pads.
+	// =========================================================================
+	class SeekBoostReward : public Reward {
+	public:
+		float boostThreshold;
+		SeekBoostReward(float boostThreshold = 50.0f) : boostThreshold(boostThreshold) {}
+
+		// Big boost pads have z=73, small pads z=70
+		static bool IsBigPad(int index) {
+			return CommonValues::BOOST_LOCATIONS[index].z > 71;
+		}
+
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			// Only active when boost is low
+			if (player.boost > boostThreshold)
+				return 0;
+
+			// Only on ground (don't distract from aerial play)
+			if (!player.isOnGround)
+				return 0;
+
+			// Find nearest available pad, preferring big pads.
+			// Big pads get their distance halved so the bot will go for a big pad
+			// even if a small pad is somewhat closer.
+			const auto& pads = state.boostPads;
+			float bestScore = 99999;
+			Vec bestPadPos = {};
+			bool bestIsBig = false;
+			bool found = false;
+
+			for (int i = 0; i < CommonValues::BOOST_LOCATIONS_AMOUNT; i++) {
+				if (!pads[i])
+					continue;
+
+				Vec padPos = CommonValues::BOOST_LOCATIONS[i];
+				float dist = player.pos.Dist(padPos);
+				bool big = IsBigPad(i);
+
+				// Big pads appear "closer" — bot will detour for them
+				float effectiveDist = big ? dist * 0.4f : dist;
+
+				if (effectiveDist < bestScore) {
+					bestScore = effectiveDist;
+					bestPadPos = padPos;
+					bestIsBig = big;
+					found = true;
+				}
+			}
+
+			if (!found)
+				return 0;
+
+			float realDist = player.pos.Dist(bestPadPos);
+			if (realDist > 2500)
+				return 0;
+
+			// Reward moving toward the chosen pad
+			Vec dirToPad = (bestPadPos - player.pos).Normalized();
+			float speedToPad = player.vel.Dot(dirToPad);
+			if (speedToPad < 0)
+				return 0;
+
+			float velScore = RS_MIN(1.0f, speedToPad / 1500.0f);
+			float distScore = 1.0f - RS_MIN(1.0f, realDist / 2500.0f);
+
+			// Scale by how low boost is — lower boost = stronger incentive
+			float urgency = 1.0f - (player.boost / boostThreshold);
+
+			// Big pad bonus — extra multiplier for going to a big pad
+			float bigBonus = bestIsBig ? 1.5f : 1.0f;
+
+			return velScore * distScore * urgency * bigBonus;
 		}
 	};
 
