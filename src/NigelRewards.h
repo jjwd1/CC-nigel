@@ -203,8 +203,8 @@ namespace RLGC {
 			if (!player.prev)
 				return 0;
 
-			// In air, had used flip/double jump, now has it back, touched ball
-			if (!player.isOnGround &&
+			// In air, ball in air, had used flip/double jump, now has it back, touched ball
+			if (!player.isOnGround && state.ball.pos.z > 300 &&
 				(player.prev->hasDoubleJumped || player.prev->hasFlipped) &&
 				!player.hasDoubleJumped && !player.hasFlipped &&
 				player.ballTouchedStep) {
@@ -226,12 +226,17 @@ namespace RLGC {
 		int ticksSinceReset = 0;
 		static constexpr int MAX_FOLLOWUP_TICKS = 15; // ~1 second at 15 steps/sec (tickSkip=8)
 
+		virtual void Reset(const GameState& initialState) override {
+			hadFlipReset = false;
+			ticksSinceReset = 0;
+		}
+
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
 			if (!player.prev)
 				return 0;
 
-			// Detect flip reset this step
-			bool gotResetNow = !player.isOnGround &&
+			// Detect flip reset this step (ball must be in the air)
+			bool gotResetNow = !player.isOnGround && state.ball.pos.z > 300 &&
 				(player.prev->hasDoubleJumped || player.prev->hasFlipped) &&
 				!player.hasDoubleJumped && !player.hasFlipped &&
 				player.ballTouchedStep;
@@ -253,6 +258,67 @@ namespace RLGC {
 				// Too long since reset, give up
 				if (ticksSinceReset > MAX_FOLLOWUP_TICKS || player.isOnGround) {
 					hadFlipReset = false;
+				}
+			}
+
+			return 0;
+		}
+	};
+
+	// =========================================================================
+	// Chained flip resets: escalating reward for getting multiple flip resets
+	// in a single aerial play (within ~4 seconds of each other).
+	// Double flip reset = big reward, triple = massive reward.
+	// Teaches the bot to maintain aerial control after a reset and go for another.
+	// =========================================================================
+	class ChainedFlipResetReward : public Reward {
+	public:
+		int chainCount = 0;
+		int ticksSinceLastReset = 0;
+		bool tracking = false;
+		// ~4 seconds at 15 steps/sec (tickSkip=8) = 60 ticks
+		static constexpr int CHAIN_WINDOW_TICKS = 60;
+
+		virtual void Reset(const GameState& initialState) override {
+			chainCount = 0;
+			ticksSinceLastReset = 0;
+			tracking = false;
+		}
+
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			if (!player.prev)
+				return 0;
+
+			// Detect flip reset this step (ball must be in the air)
+			bool gotResetNow = !player.isOnGround && state.ball.pos.z > 300 &&
+				(player.prev->hasDoubleJumped || player.prev->hasFlipped) &&
+				!player.hasDoubleJumped && !player.hasFlipped &&
+				player.ballTouchedStep;
+
+			if (tracking) {
+				ticksSinceLastReset++;
+
+				// Chain expired — landed or too much time passed
+				if (player.isOnGround || ticksSinceLastReset > CHAIN_WINDOW_TICKS) {
+					chainCount = 0;
+					tracking = false;
+				}
+			}
+
+			if (gotResetNow) {
+				if (tracking) {
+					// This is a chained reset! (2nd, 3rd, etc.)
+					chainCount++;
+					ticksSinceLastReset = 0;
+					// Escalating reward: 2nd reset = 1.0, 3rd = 2.0, 4th = 3.0...
+					return (float)chainCount;
+				} else {
+					// First reset — start tracking the chain
+					chainCount = 1;
+					ticksSinceLastReset = 0;
+					tracking = true;
+					// No bonus for the first one (FlipResetReward handles that)
+					return 0;
 				}
 			}
 
@@ -592,6 +658,24 @@ namespace RLGC {
 				return -0.2f * heightPenalty; // Small penalty, you're about to touch
 
 			return -1.0f * heightPenalty;
+		}
+	};
+
+	// =========================================================================
+	// Waste boost penalty: penalize holding boost input when boost is empty.
+	// Teaches the bot to stop pressing boost when it has none.
+	// =========================================================================
+	class WasteBoostPenalty : public Reward {
+	public:
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			if (!player.prev)
+				return 0;
+
+			// Is the bot pressing boost with no boost left?
+			if (player.boost < 1.0f && player.prevAction.boost > 0.5f)
+				return -1.0f;
+
+			return 0;
 		}
 	};
 
