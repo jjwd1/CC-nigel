@@ -8,60 +8,88 @@
 #include <RLGymCPP/OBSBuilders/AdvancedObs.h>
 #include <RLGymCPP/StateSetters/KickoffState.h>
 #include <RLGymCPP/StateSetters/RandomState.h>
+#include <RLGymCPP/StateSetters/CombinedState.h>
 #include <RLGymCPP/ActionParsers/DefaultAction.h>
 #include "NigelRewards.h"
+#include "NigelStateSetters.h"
 
 using namespace GGL; // GigaLearn
 using namespace RLGC; // RLGymCPP
 
 // Create the RLGymCPP environment for each of our games
 EnvCreateResult EnvCreateFunc(int index) {
-	// Nigel skillbot rewards: prioritizes dribbles, aerials, flip resets, and mechanical play
+
+	// === REWARDS ===
+	// Designed to produce a mechanical skillbot:
+	//   ground dribbles -> flicks -> air dribbles -> flip resets -> goals
 	std::vector<WeightedReward> rewards = {
-		// Movement - slightly boosted for mechanical play
-		{ new AirReward(), 0.15f },
-		{ new SpeedReward(), 0.3f },
-		{ new WavedashReward(), 0.8f },
 
-		// Dribbling & ball carry - core of the skillbot identity
-		{ new GroundDribbleReward(), 18.0f },
-		{ new AirDribbleReward(300.0f, 300.0f), 25.0f },
-		{ new BallCarryReward(), 12.0f },
-		{ new AerialPossessionReward(400.0f), 8.0f },
+		// --- Core mechanics: dribbling & ball carry ---
+		{ new GroundDribbleReward(), 15.0f },           // Keep ball balanced on car
+		{ new BallCarryReward(), 10.0f },               // Ball above car (ground or air)
+		{ new DribbleToGoalReward(), 12.0f },           // Carry ball toward opponent goal
+		{ new FlickReward(), 40.0f },                   // Launch ball off car with flip
 
-		// Flip resets - big event reward to incentivize this rare mechanic
-		{ new FlipResetReward(), 60.0f },
+		// --- Aerial mechanics ---
+		{ new AirDribbleReward(350.0f, 250.0f), 20.0f },   // Carry ball in air
+		{ new AerialTouchReward(250.0f), 15.0f },           // Touch ball while both high up
+		{ new AerialPossessionReward(500.0f), 6.0f },       // Stay near ball in air
+		{ new BallHeightNearCarReward(600.0f), 4.0f },      // Ball high with car nearby
 
-		// Touch quality - favor controlled touches over power shots
-		{ new ControlledTouchReward(), 10.0f },
-		{ new StrongTouchReward(20, 100), 8 },
-		{ new TouchBallReward(), 0.5f },
-		{ new TouchAccelReward(), 0.05f },
+		// --- Flip resets ---
+		{ new FlipResetReward(), 50.0f },               // Get a flip reset (rare, big reward)
+		{ new FlipResetFollowUpReward(), 30.0f },       // Use the regained flip after reset
 
-		// Player-ball approach
-		{ new FaceBallReward(), 0.8f },
-		{ new VelocityPlayerToBallReward(), 5.f },
+		// --- Touch quality ---
+		{ new ControlledTouchReward(), 6.0f },          // Gentle touches for dribble control
+		{ new StrongTouchReward(20, 100), 5.0f },       // Powerful hits when shooting
+		{ new TouchBallReward(), 0.8f },                // Any ball touch (baseline)
+		{ new TouchAccelReward(), 0.05f },              // Speed up ball on touch
 
-		// Ball-goal - still want to score
-		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 2.0f },
+		// --- Movement fundamentals ---
+		{ new SpeedReward(), 0.2f },                    // Keep moving
+		{ new AirReward(), 0.1f },                      // Small reward for being airborne
+		{ new WavedashReward(), 0.5f },                 // Wavedash detection
 
-		// Boost - balanced management
-		{ new PickupBoostReward(), 12.f },
-		{ new SaveBoostReward(), 0.6f },
+		// --- Approach & orientation ---
+		{ new FaceBallReward(), 0.5f },                 // Face toward ball
+		{ new VelocityPlayerToBallReward(), 3.0f },     // Move toward ball
 
-		// Game events - goal stays high, demos/bumps heavily reduced
-		{ new ZeroSumReward(new BumpReward(), 0.5f), 3 },
-		{ new ZeroSumReward(new DemoReward(), 0.5f), 5 },
-		{ new GoalReward(), 150 },
+		// --- Ball toward goal (zero-sum so opponent is penalized) ---
+		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 3.0f },
+
+		// --- Boost management ---
+		{ new PickupBoostReward(), 8.0f },              // Collect boost pads
+		{ new SaveBoostReward(), 0.4f },                // Don't waste all boost
+
+		// --- Game events ---
+		{ new GoalReward(), 200.0f },                   // Score goals (still the ultimate objective)
+		{ new ZeroSumReward(new BumpReward(), 0.5f), 2.0f },
+		{ new ZeroSumReward(new DemoReward(), 0.5f), 3.0f },
 		{ new SaveReward(), 0.3f },
-		{ new ShotReward(), 0.8f },
-		{ new AssistReward(), 0.0f },
+		{ new ShotReward(), 1.0f },
 	};
 
+	// === TERMINAL CONDITIONS ===
 	std::vector<TerminalCondition*> terminalConditions = {
-		new NoTouchCondition(10),
+		new NoTouchCondition(15),   // 15s without touch (longer to allow aerial attempts)
 		new GoalScoreCondition()
 	};
+
+	// === STATE SETTERS ===
+	// Mix of scenarios so the bot gets varied practice:
+	//   40% kickoff (normal gameplay)
+	//   25% ball on car (ground dribble/flick practice)
+	//   15% air dribble setup (aerial practice)
+	//   10% ball rolling to car (catch & carry practice)
+	//   10% random (general adaptation)
+	auto stateSetter = new CombinedState({
+		{ new KickoffState(), 40.0f },
+		{ new BallOnCarState(), 25.0f },
+		{ new AirDribbleSetup(), 15.0f },
+		{ new BallRollingToCarState(), 10.0f },
+		{ new RandomState(true, true, true), 10.0f },
+	});
 
 	// Make the arena
 	int playersPerTeam = 1;
@@ -74,7 +102,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 	EnvCreateResult result = {};
 	result.actionParser = new DefaultAction();
 	result.obsBuilder = new AdvancedObs();
-	result.stateSetter = new KickoffState();
+	result.stateSetter = stateSetter;
 	result.terminalConditions = terminalConditions;
 	result.rewards = rewards;
 
@@ -84,23 +112,19 @@ EnvCreateResult EnvCreateFunc(int index) {
 }
 
 void StepCallback(Learner* learner, const std::vector<GameState>& states, Report& report) {
-	// To prevent expensive metrics from eating at performance, we will only run them on 1/4th of steps
-	// This doesn't really matter unless you have expensive metrics (which this example doesn't)
 	bool doExpensiveMetrics = (rand() % 4) == 0;
 
-	// Add our metrics
 	for (auto& state : states) {
 		if (doExpensiveMetrics) {
 			for (auto& player : state.players) {
 				report.AddAvg("Player/In Air Ratio", !player.isOnGround);
 				report.AddAvg("Player/Ball Touch Ratio", player.ballTouchedStep);
 				report.AddAvg("Player/Demoed Ratio", player.isDemoed);
-
 				report.AddAvg("Player/Speed", player.vel.Length());
+				report.AddAvg("Player/Boost", player.boost);
+
 				Vec dirToBall = (state.ball.pos - player.pos).Normalized();
 				report.AddAvg("Player/Speed Towards Ball", RS_MAX(0, player.vel.Dot(dirToBall)));
-
-				report.AddAvg("Player/Boost", player.boost);
 
 				if (player.ballTouchedStep)
 					report.AddAvg("Player/Touch Height", state.ball.pos.z);
@@ -111,17 +135,17 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 				bool ballAbove = (ballRel.z > 60 && ballRel.z < 300);
 				float horizDist = ballRel.Length2D();
 
-				// Ground dribble: on ground, ball balanced on car
+				// Ground dribble detection
 				bool groundDribble = player.isOnGround && ballAbove && horizDist < 250;
 				report.AddAvg("Nigel/Ground Dribble Ratio", groundDribble);
 
-				// Air dribble: both in air, ball close
+				// Air dribble detection
 				bool airDribble = !player.isOnGround && player.pos.z > 300
-					&& state.ball.pos.z > 300 && ballDist < 300;
+					&& state.ball.pos.z > 300 && ballDist < 350;
 				report.AddAvg("Nigel/Air Dribble Ratio", airDribble);
 
-				// Aerial possession: in air with ball nearby
-				bool aerialPoss = !player.isOnGround && ballDist < 400;
+				// Aerial possession
+				bool aerialPoss = !player.isOnGround && ballDist < 500;
 				report.AddAvg("Nigel/Aerial Possession Ratio", aerialPoss);
 
 				// Flip reset detection
@@ -131,6 +155,15 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 						&& !player.hasDoubleJumped && !player.hasFlipped
 						&& player.ballTouchedStep;
 					report.AddAvg("Nigel/Flip Reset Ratio", flipReset);
+				}
+
+				// Flick detection (ball was on car, now launched)
+				if (player.prev && state.prev) {
+					Vec prevBallRel = state.prev->ball.pos - player.prev->pos;
+					bool wasOnCar = player.prev->isOnGround && prevBallRel.Length2D() < 300
+						&& prevBallRel.z > 40 && prevBallRel.z < 350;
+					bool launched = !player.isOnGround && (state.ball.vel.z - state.prev->ball.vel.z) > 300;
+					report.AddAvg("Nigel/Flick Ratio", wasOnCar && launched);
 				}
 			}
 		}
@@ -142,7 +175,6 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 
 int main(int argc, char* argv[]) {
 	// Initialize RocketSim with collision meshes
-	// Change this path to point to your meshes!
 	RocketSim::Init("../../../collision_meshes");
 
 	bool renderMode = false;
@@ -160,30 +192,26 @@ int main(int argc, char* argv[]) {
 	cfg.deviceType = LearnerDeviceType::CPU;
 
 	cfg.tickSkip = 8;
-	cfg.actionDelay = cfg.tickSkip - 1; // Normal value in other RLGym frameworks
+	cfg.actionDelay = cfg.tickSkip - 1;
 
-	// Play around with this to see what the optimal is for your machine, more games will consume more RAM
 	cfg.numGames = 256;
 
-	// Leave this empty to use a random seed each run
-	// The random seed can have a strong effect on the outcome of a run
 	cfg.randomSeed = 123;
 
 	int tsPerItr = 50'000;
 	cfg.ppo.tsPerItr = tsPerItr;
 	cfg.ppo.batchSize = tsPerItr;
-	cfg.ppo.miniBatchSize = 50'000; // Lower this if too much VRAM is being allocated
+	cfg.ppo.miniBatchSize = 50'000;
 
-	// 2 epochs for more stable learning of complex mechanics
-	cfg.ppo.epochs = 2;
+	// 3 epochs — mechanical skills need more gradient steps per batch
+	cfg.ppo.epochs = 3;
 
-	// Higher entropy encourages exploration of dribbles/aerials/flip resets
-	cfg.ppo.entropyScale = 0.045f;
+	// Higher entropy for exploration of rare mechanics (flip resets, aerials)
+	cfg.ppo.entropyScale = 0.05f;
 
-	// Higher gamma for longer-horizon play (dribble sequences take many steps)
-	cfg.ppo.gaeGamma = 0.985;
+	// High gamma for long-horizon sequences (dribble -> flick -> goal)
+	cfg.ppo.gaeGamma = 0.99;
 
-	// Good learning rate to start
 	cfg.ppo.policyLR = 1.5e-4;
 	cfg.ppo.criticLR = 1.5e-4;
 
@@ -206,10 +234,10 @@ int main(int argc, char* argv[]) {
 	cfg.ppo.critic.addLayerNorm = addLayerNorm;
 	cfg.ppo.sharedHead.addLayerNorm = addLayerNorm;
 
-	cfg.sendMetrics = !renderMode; // Send metrics
-	cfg.renderMode = renderMode; // Don't render
+	cfg.sendMetrics = !renderMode;
+	cfg.renderMode = renderMode;
 
-	// Make the learner with the environment creation function and the config we just made
+	// Make the learner
 	Learner* learner = new Learner(EnvCreateFunc, cfg, StepCallback);
 
 	// Start learning!
