@@ -25,49 +25,54 @@ EnvCreateResult EnvCreateFunc(int index) {
 	std::vector<WeightedReward> rewards = {
 
 		// --- Core mechanics: dribbling & ball carry ---
-		{ new GroundDribbleReward(), 15.0f },           // Keep ball balanced on car
-		{ new BallCarryReward(), 10.0f },               // Ball above car (ground or air)
-		{ new DribbleToGoalReward(), 12.0f },           // Carry ball toward opponent goal
-		{ new FlickReward(), 40.0f },                   // Launch ball off car with flip
+		// IMPORTANT: These are continuous (per-step) rewards. Keep weights LOW
+		// so accumulated dribble reward doesn't dwarf the one-time goal reward.
+		// At tickSkip=8, ~15 steps/sec. A 3-second dribble should earn ~100-150,
+		// comparable to but less than a goal (300).
+		{ new GroundDribbleReward(), 3.0f },            // Keep ball balanced on car
+		{ new BallCarryReward(), 2.0f },                // Ball above car (ground or air)
+		{ new DribbleToGoalReward(), 4.0f },            // Carry ball toward opponent goal
+		{ new FlickReward(), 50.0f },                   // Launch ball off car with flip (event)
 
 		// --- Aerial mechanics ---
-		{ new AirDribbleReward(350.0f, 250.0f), 20.0f },   // Carry ball in air
-		{ new AerialTouchReward(250.0f), 15.0f },           // Touch ball while both high up
-		{ new AerialPossessionReward(500.0f), 6.0f },       // Stay near ball in air
-		{ new BallHeightNearCarReward(600.0f), 4.0f },      // Ball high with car nearby
+		// Also continuous — keep low to avoid "hover near ball forever" loop
+		{ new AirDribbleReward(350.0f, 250.0f), 4.0f },    // Carry ball in air
+		{ new AerialTouchReward(250.0f), 15.0f },           // Touch ball while high (event)
+		{ new AerialPossessionReward(500.0f), 1.5f },       // Stay near ball in air
+		{ new BallHeightNearCarReward(600.0f), 1.0f },      // Ball high with car nearby
 
 		// --- Flip resets ---
-		{ new FlipResetReward(), 50.0f },               // Get a flip reset (rare, big reward)
-		{ new FlipResetFollowUpReward(), 30.0f },       // Use the regained flip after reset
+		{ new FlipResetReward(), 60.0f },               // Get a flip reset (rare, big event)
+		{ new FlipResetFollowUpReward(), 40.0f },       // Use the regained flip after reset
 
 		// --- Touch quality ---
-		{ new ControlledTouchReward(), 6.0f },          // Gentle touches for dribble control
+		{ new ControlledTouchReward(), 5.0f },          // Gentle touches for dribble control
 		{ new StrongTouchReward(20, 100), 5.0f },       // Powerful hits when shooting
-		{ new TouchBallReward(), 0.8f },                // Any ball touch (baseline)
+		{ new TouchBallReward(), 1.0f },                // Any ball touch (baseline)
 		{ new TouchAccelReward(), 0.05f },              // Speed up ball on touch
 
 		// --- Movement fundamentals ---
-		{ new SpeedReward(), 0.2f },                    // Keep moving
-		{ new AirReward(), 0.1f },                      // Small reward for being airborne
-		{ new WavedashReward(), 0.5f },                 // Wavedash detection
+		{ new SpeedReward(), 0.15f },                   // Keep moving (continuous, keep tiny)
+		{ new AirReward(), 0.08f },                     // Small reward for being airborne
+		{ new WavedashReward(), 0.5f },                 // Wavedash detection (event)
 
 		// --- Approach & orientation ---
-		{ new FaceBallReward(), 0.5f },                 // Face toward ball
-		{ new VelocityPlayerToBallReward(), 3.0f },     // Move toward ball
+		{ new FaceBallReward(), 0.3f },                 // Face toward ball (continuous)
+		{ new VelocityPlayerToBallReward(), 2.0f },     // Move toward ball (continuous)
 
 		// --- Ball toward goal (zero-sum so opponent is penalized) ---
-		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 3.0f },
+		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 4.0f },
 
 		// --- Boost management ---
-		{ new PickupBoostReward(), 8.0f },              // Collect boost pads
-		{ new SaveBoostReward(), 0.4f },                // Don't waste all boost
+		{ new PickupBoostReward(), 6.0f },              // Collect boost pads (event)
+		{ new SaveBoostReward(), 0.3f },                // Don't waste all boost (continuous)
 
-		// --- Game events ---
-		{ new GoalReward(), 200.0f },                   // Score goals (still the ultimate objective)
+		// --- Game events - these must dominate to prevent loops ---
+		{ new GoalReward(), 300.0f },                   // Score goals (THE objective)
 		{ new ZeroSumReward(new BumpReward(), 0.5f), 2.0f },
 		{ new ZeroSumReward(new DemoReward(), 0.5f), 3.0f },
 		{ new SaveReward(), 0.3f },
-		{ new ShotReward(), 1.0f },
+		{ new ShotReward(), 2.0f },
 	};
 
 	// === TERMINAL CONDITIONS ===

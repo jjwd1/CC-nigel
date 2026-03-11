@@ -172,7 +172,7 @@ namespace RLGC {
 		// Track whether we recently got a flip reset
 		bool hadFlipReset = false;
 		int ticksSinceReset = 0;
-		static constexpr int MAX_FOLLOWUP_TICKS = 120; // ~1 second at 120Hz
+		static constexpr int MAX_FOLLOWUP_TICKS = 15; // ~1 second at 15 steps/sec (tickSkip=8)
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
 			if (!player.prev)
@@ -277,8 +277,13 @@ namespace RLGC {
 	class DribbleToGoalReward : public Reward {
 	public:
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
-			float dist = player.pos.Dist(state.ball.pos);
+			Vec ballRelPos = state.ball.pos - player.pos;
+			float dist = ballRelPos.Length();
 			if (dist > 400)
+				return 0;
+
+			// Ball must be above the car (actually carrying, not just chasing)
+			if (ballRelPos.z < 40 || ballRelPos.z > 350)
 				return 0;
 
 			// Must be moving
