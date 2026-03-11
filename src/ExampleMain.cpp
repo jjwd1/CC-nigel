@@ -194,7 +194,7 @@ int main(int argc, char* argv[]) {
 	LearnerConfig cfg = {};
 	cfg.checkpointFolder = "../../../checkpoints";
 
-	cfg.deviceType = LearnerDeviceType::GPU_CUDA;
+	cfg.deviceType = LearnerDeviceType::CPU;
 
 	cfg.tickSkip = 8;
 	cfg.actionDelay = cfg.tickSkip - 1;
@@ -245,7 +245,7 @@ int main(int argc, char* argv[]) {
 	// Make the learner
 	Learner* learner = new Learner(EnvCreateFunc, cfg, StepCallback);
 
-	// Start learning!
+	// Start learning
 	learner->Start();
 
 	return EXIT_SUCCESS;
