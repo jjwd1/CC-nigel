@@ -820,13 +820,17 @@ namespace RLGC {
 	class WallToAirReward : public Reward {
 	public:
 		static constexpr int MAX_PLAYERS = 2;
+		static constexpr int COOLDOWN_FRAMES = 30; // ~2 seconds at tickSkip=8
 
 		// Track: was the bot on the wall with the ball nearby?
 		bool wasOnWallWithBall[MAX_PLAYERS] = {};
+		int cooldown[MAX_PLAYERS] = {};
 
 		virtual void Reset(const GameState& initialState) override {
-			for (int p = 0; p < MAX_PLAYERS; p++)
+			for (int p = 0; p < MAX_PLAYERS; p++) {
 				wasOnWallWithBall[p] = false;
+				cooldown[p] = 0;
+			}
 		}
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
@@ -838,6 +842,10 @@ namespace RLGC {
 				if (&state.players[i] == &player) { pIdx = i; break; }
 			}
 			if (pIdx >= MAX_PLAYERS) pIdx = 0;
+
+			// Tick down cooldown
+			if (cooldown[pIdx] > 0)
+				cooldown[pIdx]--;
 
 			// Step 1: Detect "on wall with ball"
 			bool onWall = player.isOnGround && player.pos.z > 200 &&
@@ -854,8 +862,6 @@ namespace RLGC {
 			}
 
 			// Step 2: Detect transition to airborne after being on wall with ball
-			// Uses the flag instead of checking previous frame — avoids missing
-			// the event if isOnGround flickered for a frame during the jump.
 			if (player.isOnGround || !wasOnWallWithBall[pIdx])
 				return 0;
 
@@ -871,6 +877,11 @@ namespace RLGC {
 
 			// Full sequence confirmed — clear the flag (one-time event)
 			wasOnWallWithBall[pIdx] = false;
+
+			// Cooldown: no reward if fired recently (~2 seconds)
+			if (cooldown[pIdx] > 0)
+				return 0;
+			cooldown[pIdx] = COOLDOWN_FRAMES;
 
 			// Don't reward if low boost — no penalty, just no incentive
 			if (player.boost < 25)
