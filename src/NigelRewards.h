@@ -63,22 +63,32 @@ namespace RLGC {
 	// =========================================================================
 	class SteeringSmoothnessPenalty : public Reward {
 	public:
-		// Track last N steer inputs to detect spammy oscillation patterns
-		// (not just frame-to-frame, but also left-left-right-right patterns)
+		// Track last N steer inputs to detect spammy oscillation patterns.
+		// Per-player history (2 players per game) so inputs don't mix.
 		static constexpr int HISTORY_SIZE = 15;
-		float steerHistory[HISTORY_SIZE] = {};
-		int historyIndex = 0;
-		bool historyFull = false;
+		static constexpr int MAX_PLAYERS = 2;
+		float steerHistory[MAX_PLAYERS][HISTORY_SIZE] = {};
+		int historyIndex[MAX_PLAYERS] = {};
+		bool historyFull[MAX_PLAYERS] = {};
 
 		virtual void Reset(const GameState& initialState) override {
-			for (int i = 0; i < HISTORY_SIZE; i++) steerHistory[i] = 0;
-			historyIndex = 0;
-			historyFull = false;
+			for (int p = 0; p < MAX_PLAYERS; p++) {
+				for (int i = 0; i < HISTORY_SIZE; i++) steerHistory[p][i] = 0;
+				historyIndex[p] = 0;
+				historyFull[p] = false;
+			}
 		}
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
 			if (!player.prev)
 				return 0;
+
+			// Find this player's index in the game
+			int pIdx = 0;
+			for (int i = 0; i < (int)state.players.size(); i++) {
+				if (&state.players[i] == &player) { pIdx = i; break; }
+			}
+			if (pIdx >= MAX_PLAYERS) pIdx = 0;
 
 			// On ground: track steer. In air: track yaw, but NOT while air rolling
 			// — yaw oscillation during tornado spins is legitimate aerial control.
@@ -86,11 +96,11 @@ namespace RLGC {
 			float curInput = player.isOnGround ? player.prevAction.steer :
 				(airRolling ? 0.0f : player.prevAction.yaw);
 
-			steerHistory[historyIndex] = curInput;
-			historyIndex = (historyIndex + 1) % HISTORY_SIZE;
-			if (historyIndex == 0) historyFull = true;
+			steerHistory[pIdx][historyIndex[pIdx]] = curInput;
+			historyIndex[pIdx] = (historyIndex[pIdx] + 1) % HISTORY_SIZE;
+			if (historyIndex[pIdx] == 0) historyFull[pIdx] = true;
 
-			int count = historyFull ? HISTORY_SIZE : historyIndex;
+			int count = historyFull[pIdx] ? HISTORY_SIZE : historyIndex[pIdx];
 			if (count < 3)
 				return 0;
 
@@ -103,11 +113,9 @@ namespace RLGC {
 			bool prevSet = false;
 
 			for (int i = 0; i < count; i++) {
-				// Read in chronological order
-				int idx = historyFull ? (historyIndex + i) % HISTORY_SIZE : i;
-				float val = steerHistory[idx];
+				int idx = historyFull[pIdx] ? (historyIndex[pIdx] + i) % HISTORY_SIZE : i;
+				float val = steerHistory[pIdx][idx];
 
-				// Skip near-zero inputs (dead zone)
 				if (fabsf(val) < 0.1f)
 					continue;
 
@@ -305,43 +313,48 @@ namespace RLGC {
 	// =========================================================================
 	class FlipResetFollowUpReward : public Reward {
 	public:
-		// Track whether we recently got a flip reset
-		bool hadFlipReset = false;
-		int ticksSinceReset = 0;
+		static constexpr int MAX_PLAYERS = 2;
 		static constexpr int MAX_FOLLOWUP_TICKS = 15; // ~1 second at 15 steps/sec (tickSkip=8)
+		bool hadFlipReset[MAX_PLAYERS] = {};
+		int ticksSinceReset[MAX_PLAYERS] = {};
 
 		virtual void Reset(const GameState& initialState) override {
-			hadFlipReset = false;
-			ticksSinceReset = 0;
+			for (int p = 0; p < MAX_PLAYERS; p++) {
+				hadFlipReset[p] = false;
+				ticksSinceReset[p] = 0;
+			}
 		}
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
 			if (!player.prev)
 				return 0;
 
-			// Detect flip reset this step (ball must be in the air)
+			int pIdx = 0;
+			for (int i = 0; i < (int)state.players.size(); i++) {
+				if (&state.players[i] == &player) { pIdx = i; break; }
+			}
+			if (pIdx >= MAX_PLAYERS) pIdx = 0;
+
 			bool gotResetNow = !player.isOnGround && state.ball.pos.z > 300 &&
 				(player.prev->hasDoubleJumped || player.prev->hasFlipped) &&
 				!player.hasDoubleJumped && !player.hasFlipped &&
 				player.ballTouchedStep;
 
 			if (gotResetNow) {
-				hadFlipReset = true;
-				ticksSinceReset = 0;
+				hadFlipReset[pIdx] = true;
+				ticksSinceReset[pIdx] = 0;
 			}
 
-			if (hadFlipReset) {
-				ticksSinceReset++;
+			if (hadFlipReset[pIdx]) {
+				ticksSinceReset[pIdx]++;
 
-				// Used the flip! (flipping or double jumped after reset)
 				if (!player.isOnGround && (player.isFlipping || player.hasDoubleJumped || player.hasFlipped)) {
-					hadFlipReset = false;
+					hadFlipReset[pIdx] = false;
 					return 1.0f;
 				}
 
-				// Too long since reset, give up
-				if (ticksSinceReset > MAX_FOLLOWUP_TICKS || player.isOnGround) {
-					hadFlipReset = false;
+				if (ticksSinceReset[pIdx] > MAX_FOLLOWUP_TICKS || player.isOnGround) {
+					hadFlipReset[pIdx] = false;
 				}
 			}
 
@@ -357,51 +370,53 @@ namespace RLGC {
 	// =========================================================================
 	class ChainedFlipResetReward : public Reward {
 	public:
-		int chainCount = 0;
-		int ticksSinceLastReset = 0;
-		bool tracking = false;
-		// ~4 seconds at 15 steps/sec (tickSkip=8) = 60 ticks
-		static constexpr int CHAIN_WINDOW_TICKS = 60;
+		static constexpr int MAX_PLAYERS = 2;
+		static constexpr int CHAIN_WINDOW_TICKS = 60; // ~4 seconds at 15 steps/sec
+		int chainCount[MAX_PLAYERS] = {};
+		int ticksSinceLastReset[MAX_PLAYERS] = {};
+		bool tracking[MAX_PLAYERS] = {};
 
 		virtual void Reset(const GameState& initialState) override {
-			chainCount = 0;
-			ticksSinceLastReset = 0;
-			tracking = false;
+			for (int p = 0; p < MAX_PLAYERS; p++) {
+				chainCount[p] = 0;
+				ticksSinceLastReset[p] = 0;
+				tracking[p] = false;
+			}
 		}
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
 			if (!player.prev)
 				return 0;
 
-			// Detect flip reset this step (ball must be in the air)
+			int pIdx = 0;
+			for (int i = 0; i < (int)state.players.size(); i++) {
+				if (&state.players[i] == &player) { pIdx = i; break; }
+			}
+			if (pIdx >= MAX_PLAYERS) pIdx = 0;
+
 			bool gotResetNow = !player.isOnGround && state.ball.pos.z > 300 &&
 				(player.prev->hasDoubleJumped || player.prev->hasFlipped) &&
 				!player.hasDoubleJumped && !player.hasFlipped &&
 				player.ballTouchedStep;
 
-			if (tracking) {
-				ticksSinceLastReset++;
+			if (tracking[pIdx]) {
+				ticksSinceLastReset[pIdx]++;
 
-				// Chain expired — landed or too much time passed
-				if (player.isOnGround || ticksSinceLastReset > CHAIN_WINDOW_TICKS) {
-					chainCount = 0;
-					tracking = false;
+				if (player.isOnGround || ticksSinceLastReset[pIdx] > CHAIN_WINDOW_TICKS) {
+					chainCount[pIdx] = 0;
+					tracking[pIdx] = false;
 				}
 			}
 
 			if (gotResetNow) {
-				if (tracking) {
-					// This is a chained reset! (2nd, 3rd, etc.)
-					chainCount++;
-					ticksSinceLastReset = 0;
-					// Escalating reward: 2nd reset = 1.0, 3rd = 2.0, 4th = 3.0...
-					return (float)chainCount;
+				if (tracking[pIdx]) {
+					chainCount[pIdx]++;
+					ticksSinceLastReset[pIdx] = 0;
+					return (float)chainCount[pIdx];
 				} else {
-					// First reset — start tracking the chain
-					chainCount = 1;
-					ticksSinceLastReset = 0;
-					tracking = true;
-					// No bonus for the first one (FlipResetReward handles that)
+					chainCount[pIdx] = 1;
+					ticksSinceLastReset[pIdx] = 0;
+					tracking[pIdx] = true;
 					return 0;
 				}
 			}
@@ -862,42 +877,52 @@ namespace RLGC {
 	// =========================================================================
 	class KickoffReward : public Reward {
 	public:
-		bool inApproach = false;    // Ball hasn't been hit yet
-		bool waitingToCheck = false; // Ball hit, counting down to check
-		bool flipRewarded = false;  // Already gave the one-time flip reward
-		int ticksSinceHit = 0;
-		int ticksSinceKickoff = 0;
+		static constexpr int MAX_PLAYERS = 2;
 		// ~1.5 seconds after hit at 15 steps/sec (tickSkip=8) ≈ 22 ticks
 		static constexpr int CHECK_DELAY_TICKS = 22;
 		// 2-second window to flip (~30 ticks)
 		static constexpr int FLIP_WINDOW_TICKS = 30;
 
+		bool inApproach[MAX_PLAYERS] = {};
+		bool waitingToCheck[MAX_PLAYERS] = {};
+		bool flipRewarded[MAX_PLAYERS] = {};
+		int ticksSinceHit[MAX_PLAYERS] = {};
+		int ticksSinceKickoff[MAX_PLAYERS] = {};
+
 		virtual void Reset(const GameState& initialState) override {
-			inApproach = true;
-			waitingToCheck = false;
-			flipRewarded = false;
-			ticksSinceHit = 0;
-			ticksSinceKickoff = 0;
+			for (int p = 0; p < MAX_PLAYERS; p++) {
+				inApproach[p] = true;
+				waitingToCheck[p] = false;
+				flipRewarded[p] = false;
+				ticksSinceHit[p] = 0;
+				ticksSinceKickoff[p] = 0;
+			}
 		}
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			int pIdx = 0;
+			for (int i = 0; i < (int)state.players.size(); i++) {
+				if (&state.players[i] == &player) { pIdx = i; break; }
+			}
+			if (pIdx >= MAX_PLAYERS) pIdx = 0;
+
 			// Phase 1: Approaching the ball — reward flipping and speed
-			if (inApproach) {
+			if (inApproach[pIdx]) {
 				// Not a kickoff episode if ball isn't at center
 				if (fabsf(state.ball.pos.x) > 50 || fabsf(state.ball.pos.y) > 50) {
-					inApproach = false;
+					inApproach[pIdx] = false;
 					return 0;
 				}
 
 				// Ball hit — transition to waiting phase
 				if (state.ball.vel.Length() > 100) {
-					inApproach = false;
-					waitingToCheck = true;
-					ticksSinceHit = 0;
+					inApproach[pIdx] = false;
+					waitingToCheck[pIdx] = true;
+					ticksSinceHit[pIdx] = 0;
 					return 0;
 				}
 
-				ticksSinceKickoff++;
+				ticksSinceKickoff[pIdx]++;
 
 				float reward = 0;
 
@@ -907,35 +932,32 @@ namespace RLGC {
 				reward += RS_MAX(0, speedToBall / CommonValues::CAR_MAX_SPEED);
 
 				// One-time bonus for flipping within the 2-second window.
-				// Not continuous — so there's no incentive to flip instantly.
-				if (!flipRewarded && ticksSinceKickoff <= FLIP_WINDOW_TICKS &&
+				if (!flipRewarded[pIdx] && ticksSinceKickoff[pIdx] <= FLIP_WINDOW_TICKS &&
 					(player.isFlipping || player.hasFlipped)) {
-					flipRewarded = true;
+					flipRewarded[pIdx] = true;
 					reward += 1.0f;
 				}
 
 				return reward;
 			}
 
-			// Phase 2: Wait 4 seconds then check ball position
-			if (waitingToCheck) {
-				ticksSinceHit++;
+			// Phase 2: Wait then check ball position
+			if (waitingToCheck[pIdx]) {
+				ticksSinceHit[pIdx]++;
 
-				// Episode ended before we could check (goal scored)
 				if (isFinal) {
-					waitingToCheck = false;
+					waitingToCheck[pIdx] = false;
 					return 0;
 				}
 
-				if (ticksSinceHit >= CHECK_DELAY_TICKS) {
-					waitingToCheck = false;
+				if (ticksSinceHit[pIdx] >= CHECK_DELAY_TICKS) {
+					waitingToCheck[pIdx] = false;
 
 					// Is the ball on the opponent's half?
 					float oppGoalY = (player.team == Team::BLUE) ? 5120.0f : -5120.0f;
 					bool ballOnOppSide = (oppGoalY > 0) ? (state.ball.pos.y > 0) : (state.ball.pos.y < 0);
 
 					if (ballOnOppSide) {
-						// Scale by how deep into opponent half
 						float depth = fabsf(state.ball.pos.y) / 5120.0f;
 						return 0.5f + 0.5f * depth;
 					}
