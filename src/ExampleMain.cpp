@@ -43,6 +43,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new AirDribbleReward(400.0f, 150.0f), 5.0f }, // Carry ball in air (reduced 7.5->5)
 		{ new AirRollDribbleReward(400.0f, 300.0f), 0.5f }, // Air roll during air dribble
 		{ new AerialTouchReward(200.0f), 20.0f },       // Touch ball while high (reduced 30->20)
+		{ new ChainedAerialTouchReward(), 2.0f },       // Bonus per successive aerial touch without landing
 		{ new AerialPossessionReward(400.0f), 2.0f },    // Stay near ball in air (reduced 3->2)
 
 		// --- Flip resets ---
@@ -73,17 +74,17 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 1.0f },
 
 		// --- Boost management ---
-		{ new PickupBoostReward(), 5.0f },              // Collect boost pads (event, was 3)
+		{ new PickupBoostReward(), 5.5f },              // Collect boost pads (event, was 5)
 		{ new BoostWhileDribblingReward(), 8.0f },      // Pick up boost while carrying ball (event)
-		{ new SeekBoostReward(50.0f), 4.0f },           // Move toward nearest pad when boost low (bumped 2->4)
+		{ new SeekBoostReward(50.0f), 4.4f },           // Move toward nearest pad when boost low (bumped 4->4.4)
 		{ new SaveBoostReward(), 0.3f },                // Don't waste all boost (continuous)
-		{ new WasteBoostPenalty(), 1.5f },              // Don't press boost with 0 boost (bumped 0.5->1.5)
+		{ new WasteBoostPenalty(), 2.5f },              // Don't press boost with 0 boost (bumped 0.5->2.5)
 
 		// --- Game events - these must dominate to prevent loops ---
 		{ new GoalReward(), 300.0f },                   // Score goals (THE objective)
 		{ new ZeroSumReward(new BumpReward(), 0.5f), 2.0f },
 		{ new ZeroSumReward(new DemoReward(), 0.5f), 3.0f },
-		{ new SaveReward(), 1.0f },                    // Save the ball (bumped 0.3->1.0)
+		{ new SaveReward(), 1.5f },                    // Save the ball (bumped 1.0->1.5)
 		{ new ShotReward(), 2.0f },
 	};
 

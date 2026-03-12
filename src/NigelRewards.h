@@ -6,6 +6,38 @@
 namespace RLGC {
 
 	// =========================================================================
+	// Takeoff boost helper: tracks each player's boost at the moment they
+	// leave the ground. Embed in any reward that needs to gate on takeoff boost.
+	// =========================================================================
+	struct TakeoffBoostTracker {
+		static constexpr int MAX_PLAYERS = 2;
+		float boostAtTakeoff[MAX_PLAYERS] = {};
+		bool wasOnGround[MAX_PLAYERS] = { true, true };
+
+		void Reset() {
+			for (int p = 0; p < MAX_PLAYERS; p++) {
+				boostAtTakeoff[p] = 0;
+				wasOnGround[p] = true;
+			}
+		}
+
+		void Update(const Player& player, int pIdx) {
+			if (pIdx >= MAX_PLAYERS) pIdx = 0;
+			if (player.isOnGround) {
+				wasOnGround[pIdx] = true;
+			} else if (wasOnGround[pIdx]) {
+				boostAtTakeoff[pIdx] = player.boost;
+				wasOnGround[pIdx] = false;
+			}
+		}
+
+		float Get(int pIdx) const {
+			if (pIdx >= MAX_PLAYERS) pIdx = 0;
+			return boostAtTakeoff[pIdx];
+		}
+	};
+
+	// =========================================================================
 	// Ground dribble: ball balanced on/near car while driving on ground
 	// =========================================================================
 	// Helper: check if any opponent is also close to the ball (shared possession).
@@ -237,11 +269,23 @@ namespace RLGC {
 	public:
 		float maxDist;
 		float minHeight;
+		TakeoffBoostTracker takeoffTracker;
 		AirDribbleReward(float maxDist = 300.0f, float minHeight = 300.0f)
 			: maxDist(maxDist), minHeight(minHeight) {}
 
+		virtual void Reset(const GameState& initialState) override { takeoffTracker.Reset(); }
+
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			int pIdx = 0;
+			for (int i = 0; i < (int)state.players.size(); i++) {
+				if (&state.players[i] == &player) { pIdx = i; break; }
+			}
+			takeoffTracker.Update(player, pIdx);
+
 			if (player.isOnGround)
+				return 0;
+
+			if (takeoffTracker.Get(pIdx) < 30)
 				return 0;
 
 			if (player.pos.z < minHeight || state.ball.pos.z < minHeight)
@@ -332,6 +376,50 @@ namespace RLGC {
 			float goalMult = 0.6f + 0.4f * RS_MAX(0.0f, goalDot); // 0.6 base, up to 1.0
 
 			return (0.5f + 0.5f * heightBonus) * goalMult;
+		}
+	};
+
+	// =========================================================================
+	// Chained aerial touch: flat bonus for each successive aerial touch
+	// without landing. Encourages sustained aerial control.
+	// =========================================================================
+	class ChainedAerialTouchReward : public Reward {
+	public:
+		static constexpr int MAX_PLAYERS = 2;
+		int touchCount[MAX_PLAYERS] = {};
+		bool wasOnGround[MAX_PLAYERS] = { true, true };
+
+		virtual void Reset(const GameState& initialState) override {
+			for (int p = 0; p < MAX_PLAYERS; p++) {
+				touchCount[p] = 0;
+				wasOnGround[p] = true;
+			}
+		}
+
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			int pIdx = 0;
+			for (int i = 0; i < (int)state.players.size(); i++) {
+				if (&state.players[i] == &player) { pIdx = i; break; }
+			}
+			if (pIdx >= MAX_PLAYERS) pIdx = 0;
+
+			// Reset touch count on landing
+			if (player.isOnGround) {
+				touchCount[pIdx] = 0;
+				wasOnGround[pIdx] = true;
+				return 0;
+			}
+
+			// Count aerial touches
+			if (player.ballTouchedStep && state.ball.pos.z > 200) {
+				touchCount[pIdx]++;
+
+				// Reward on 2nd touch and beyond (1st is covered by AerialTouchReward)
+				if (touchCount[pIdx] >= 2)
+					return 1.0f;
+			}
+
+			return 0;
 		}
 	};
 
@@ -543,10 +631,22 @@ namespace RLGC {
 	class AerialPossessionReward : public Reward {
 	public:
 		float possessionDist;
+		TakeoffBoostTracker takeoffTracker;
 		AerialPossessionReward(float possessionDist = 400.0f) : possessionDist(possessionDist) {}
 
+		virtual void Reset(const GameState& initialState) override { takeoffTracker.Reset(); }
+
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			int pIdx = 0;
+			for (int i = 0; i < (int)state.players.size(); i++) {
+				if (&state.players[i] == &player) { pIdx = i; break; }
+			}
+			takeoffTracker.Update(player, pIdx);
+
 			if (player.isOnGround)
+				return 0;
+
+			if (takeoffTracker.Get(pIdx) < 30)
 				return 0;
 
 			float dist = player.pos.Dist(state.ball.pos);
@@ -882,9 +982,18 @@ namespace RLGC {
 	class GoForAerialReward : public Reward {
 	public:
 		float minBallHeight;
+		TakeoffBoostTracker takeoffTracker;
 		GoForAerialReward(float minBallHeight = 400.0f) : minBallHeight(minBallHeight) {}
 
+		virtual void Reset(const GameState& initialState) override { takeoffTracker.Reset(); }
+
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			int pIdx = 0;
+			for (int i = 0; i < (int)state.players.size(); i++) {
+				if (&state.players[i] == &player) { pIdx = i; break; }
+			}
+			takeoffTracker.Update(player, pIdx);
+
 			// Ball must be meaningfully in the air
 			if (state.ball.pos.z < minBallHeight)
 				return 0;
@@ -912,6 +1021,10 @@ namespace RLGC {
 
 			// Must be airborne — no reward for running under aerial balls
 			if (player.isOnGround)
+				return 0;
+
+			// No reward if took off with insufficient boost
+			if (takeoffTracker.Get(pIdx) < 30)
 				return 0;
 
 			float airBonus = RS_MIN(1.0f, RS_MAX(0.0f, player.vel.z) / 1000.0f);
