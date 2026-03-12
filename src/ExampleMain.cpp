@@ -27,9 +27,9 @@ EnvCreateResult EnvCreateFunc(int index) {
 
 		// --- Core mechanics: dribbling & ball carry ---
 		// (reduced — dribbling is already the bot's strongest skill)
-		{ new GroundDribbleReward(), 0.4f },            // Keep ball balanced on car
-		{ new BallCarryReward(), 0.5f },                // Ball above car (ground or air)
-		{ new DribbleToGoalReward(), 0.8f },            // Carry ball toward opponent goal
+		{ new GroundDribbleReward(), 0.2f },            // Keep ball balanced on car (reduced)
+		{ new BallCarryReward(), 0.3f },                // Ball above car (ground or air, reduced)
+		{ new DribbleToGoalReward(), 0.5f },            // Carry ball toward opponent goal (reduced)
 		{ new FlickReward(), 50.0f },                   // Launch ball off car with flip (event)
 		{ new FlickWhenPressuredReward(), 40.0f },      // Flick when opponent diving in / toward goal
 
@@ -66,10 +66,10 @@ EnvCreateResult EnvCreateFunc(int index) {
 
 		// --- Approach & orientation ---
 		{ new RelaxedFaceBallReward(), 0.15f },         // Face toward ball (dead zone — no micro-corrections)
-		{ new VelocityPlayerToBallReward(), 0.6f },     // Move toward ball (continuous, reduced 1.0->0.6)
+		{ new VelocityPlayerToBallReward(), 0.3f },     // Move toward ball (continuous, reduced 0.6->0.3)
 
 		// --- Ball toward goal (zero-sum so opponent is penalized) ---
-		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 2.0f },
+		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 1.0f },
 
 		// --- Boost management ---
 		{ new PickupBoostReward(), 5.0f },              // Collect boost pads (event, was 3)

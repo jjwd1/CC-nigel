@@ -768,14 +768,12 @@ namespace RLGC {
 
 			float baseReward = velScore * distScore;
 
-			// Airborne and going up: full reward + bonus
-			if (!player.isOnGround && player.vel.z > 100) {
-				float airBonus = RS_MIN(1.0f, player.vel.z / 1000.0f);
-				return baseReward + airBonus;
-			}
+			// Must be airborne — no reward for running under aerial balls
+			if (player.isOnGround)
+				return 0;
 
-			// On ground: reduced — just driving toward it isn't the goal
-			return baseReward * 0.3f;
+			float airBonus = RS_MIN(1.0f, RS_MAX(0.0f, player.vel.z) / 1000.0f);
+			return baseReward + airBonus;
 		}
 	};
 
