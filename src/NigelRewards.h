@@ -65,7 +65,7 @@ namespace RLGC {
 	public:
 		// Track last N steer inputs to detect spammy oscillation patterns
 		// (not just frame-to-frame, but also left-left-right-right patterns)
-		static constexpr int HISTORY_SIZE = 5;
+		static constexpr int HISTORY_SIZE = 15;
 		float steerHistory[HISTORY_SIZE] = {};
 		int historyIndex = 0;
 		bool historyFull = false;
@@ -116,9 +116,9 @@ namespace RLGC {
 				prevSet = true;
 			}
 
-			// 2+ direction changes in 5 frames = spamming
-			// 2 changes = mild, 3+ = heavy spam
-			if (directionChanges >= 2)
+			// 4+ direction changes in 1 second = spamming
+			// Legitimate turns rarely flip direction more than 3 times in a second
+			if (directionChanges >= 4)
 				penalty -= 0.3f * directionChanges;
 
 			// Also check physical angular velocity oscillation
