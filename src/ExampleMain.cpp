@@ -34,7 +34,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new FlickWhenPressuredReward(), 40.0f },      // Flick when opponent diving in / toward goal
 
 		// --- Wall play (bridge from ground to aerial) ---
-		{ new WallPlayReward(), 2.0f },                  // On wall near ball (continuous, NEW)
+		{ new WallCarryReward(), 3.0f },                 // Carry ball up the wall (continuous)
 		{ new WallToAirReward(), 15.0f },                // Jump off wall toward ball (event, NEW)
 
 		// --- Aerial mechanics ---
@@ -73,6 +73,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 
 		// --- Boost management ---
 		{ new PickupBoostReward(), 5.0f },              // Collect boost pads (event, was 3)
+		{ new BoostWhileDribblingReward(), 8.0f },      // Pick up boost while carrying ball (event)
 		{ new SeekBoostReward(50.0f), 4.0f },           // Move toward nearest pad when boost low (bumped 2->4)
 		{ new SaveBoostReward(), 0.3f },                // Don't waste all boost (continuous)
 		{ new WasteBoostPenalty(), 1.5f },              // Don't press boost with 0 boost (bumped 0.5->1.5)

@@ -555,15 +555,14 @@ namespace RLGC {
 	};
 
 	// =========================================================================
-	// Wall play: continuous reward for being on the wall near the ball.
-	// Encourages the bot to actually drive up walls instead of staying on ground.
-	// Uses position-based wall detection (isOnGround + high up + near wall edge).
+	// Wall carry: reward for dribbling the ball up the wall.
+	// Ball must be balanced on car + on wall + moving upward.
+	// Bridges ground dribble → wall → aerial transition.
 	// =========================================================================
-	class WallPlayReward : public Reward {
+	class WallCarryReward : public Reward {
 	public:
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
-			// Detect "on wall": wheels on surface, elevated, near a wall edge
-			// Side walls at x=±4096, back walls at y=±5120
+			// Must be on a wall surface
 			if (!player.isOnGround || player.pos.z < 200)
 				return 0;
 
@@ -572,16 +571,26 @@ namespace RLGC {
 			if (!nearSideWall && !nearBackWall)
 				return 0;
 
-			// Must be near the ball for this to be useful
-			float ballDist = player.pos.Dist(state.ball.pos);
-			if (ballDist > 1000)
+			// Ball must be balanced on/near the car (same idea as ground dribble)
+			Vec ballRel = state.ball.pos - player.pos;
+			float ballDist = ballRel.Length();
+			if (ballDist > 350)
 				return 0;
 
-			// Scale by height (higher on wall = better) and closeness to ball
-			float heightScore = RS_MIN(1.0f, player.pos.z / 1500.0f);
-			float distScore = 1.0f - (ballDist / 1000.0f);
+			// Ball should be "above" the car relative to car's up direction
+			float upDot = player.rotMat.up.Dot(ballRel);
+			if (upDot < 40 || upDot > 300)
+				return 0;
 
-			return heightScore * distScore;
+			// Must be moving upward on the wall (carrying ball up, not sitting still)
+			if (player.vel.z < 100)
+				return 0;
+
+			// Scale by height (higher = closer to aerial transition) and speed
+			float heightScore = RS_MIN(1.0f, player.pos.z / 1500.0f);
+			float speedScore = RS_MIN(1.0f, player.vel.Length() / 1500.0f);
+
+			return heightScore * 0.5f + speedScore * 0.5f;
 		}
 	};
 
@@ -845,6 +854,38 @@ namespace RLGC {
 			float bigBonus = bestIsBig ? 1.5f : 1.0f;
 
 			return velScore * distScore * urgency * bigBonus;
+		}
+	};
+
+	// =========================================================================
+	// Boost while dribbling: bonus for picking up boost pads while carrying
+	// the ball. Teaches the bot to route through pads on the way to plays
+	// instead of choosing between boost and ball control.
+	// =========================================================================
+	class BoostWhileDribblingReward : public Reward {
+	public:
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			if (!player.prev)
+				return 0;
+
+			// Did boost increase this step? (picked up a pad)
+			if (player.boost <= player.prev->boost)
+				return 0;
+
+			// Ball must be close (possession)
+			float ballDist = player.pos.Dist(state.ball.pos);
+			if (ballDist > 300)
+				return 0;
+
+			// Bot and ball should be moving in similar directions (carrying, not chasing)
+			if (player.vel.Length() > 200 && state.ball.vel.Length() > 200) {
+				float alignment = player.vel.Normalized().Dot(state.ball.vel.Normalized());
+				if (alignment < 0.3f)
+					return 0;
+			}
+
+			// Flat reward — the event (boost pickup while possessing ball) is what matters
+			return 1.0f;
 		}
 	};
 
