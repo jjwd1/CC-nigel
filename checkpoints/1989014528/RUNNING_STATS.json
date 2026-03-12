@@ -1,0 +1,10 @@
+{
+    "return_stat": {
+        "count": 5794950,
+        "mean": 240.0098995599086,
+        "var": 213538228768.65332
+    },
+    "run_id": "3vh2ehzm",
+    "total_iterations": 38633,
+    "total_timesteps": 1989014528
+}
