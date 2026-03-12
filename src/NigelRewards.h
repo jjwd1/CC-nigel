@@ -824,14 +824,20 @@ namespace RLGC {
 	public:
 		bool inApproach = false;    // Ball hasn't been hit yet
 		bool waitingToCheck = false; // Ball hit, counting down to check
+		bool flipRewarded = false;  // Already gave the one-time flip reward
 		int ticksSinceHit = 0;
+		int ticksSinceKickoff = 0;
 		// ~1.5 seconds after hit at 15 steps/sec (tickSkip=8) ≈ 22 ticks
 		static constexpr int CHECK_DELAY_TICKS = 22;
+		// 2-second window to flip (~30 ticks)
+		static constexpr int FLIP_WINDOW_TICKS = 30;
 
 		virtual void Reset(const GameState& initialState) override {
 			inApproach = true;
 			waitingToCheck = false;
+			flipRewarded = false;
 			ticksSinceHit = 0;
+			ticksSinceKickoff = 0;
 		}
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
@@ -851,6 +857,8 @@ namespace RLGC {
 					return 0;
 				}
 
+				ticksSinceKickoff++;
+
 				float reward = 0;
 
 				// Reward speed toward ball
@@ -858,9 +866,13 @@ namespace RLGC {
 				float speedToBall = player.vel.Dot(dirToBall);
 				reward += RS_MAX(0, speedToBall / CommonValues::CAR_MAX_SPEED);
 
-				// Bonus for flipping
-				if (player.isFlipping || player.hasFlipped)
+				// One-time bonus for flipping within the 2-second window.
+				// Not continuous — so there's no incentive to flip instantly.
+				if (!flipRewarded && ticksSinceKickoff <= FLIP_WINDOW_TICKS &&
+					(player.isFlipping || player.hasFlipped)) {
+					flipRewarded = true;
 					reward += 1.0f;
+				}
 
 				return reward;
 			}
