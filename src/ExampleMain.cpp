@@ -53,6 +53,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new FlipResetGoalReward(), 500.0f },          // Score within 3s of flip reset (huge event)
 
 		// --- Touch quality ---
+		{ new ControlledTouchReward(), 3.0f },          // Gentle touches for dribble control
 		{ new StrongTouchReward(20, 100), 5.0f },       // Powerful hits when shooting
 		{ new TouchBallReward(), 1.0f },                // Any ball touch (baseline)
 		{ new TouchAccelReward(), 0.05f },              // Speed up ball on touch
