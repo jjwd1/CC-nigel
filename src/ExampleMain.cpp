@@ -30,8 +30,8 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new GroundDribbleReward(), 0.2f },            // Keep ball balanced on car (reduced)
 		{ new BallCarryReward(), 0.3f },                // Ball above car (ground or air, reduced)
 		{ new DribbleToGoalReward(), 0.5f },            // Carry ball toward opponent goal (reduced)
-		{ new FlickReward(), 50.0f },                   // Launch ball off car with flip (event)
-		{ new FlickWhenPressuredReward(), 40.0f },      // Flick when opponent diving in / toward goal
+		{ new FlickReward(), 35.0f },                   // Launch ball off car with flip (event, reduced 50->35)
+		{ new FlickWhenPressuredReward(), 30.0f },      // Flick when opponent diving in / toward goal (reduced 40->30)
 
 		// --- Wall play (bridge from ground to aerial) ---
 		{ new WallCarryReward(), 3.0f },                 // Carry ball up the wall (continuous)

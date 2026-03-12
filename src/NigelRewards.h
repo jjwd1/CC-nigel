@@ -161,21 +161,48 @@ namespace RLGC {
 
 	// =========================================================================
 	// Flick: launch ball off car with a jump/flip while dribbling
-	// Detects ball going from "on car" to "flying away fast" after a jump
+	// Requires 10 out of last 20 frames of ball-on-car before the flick counts.
 	// =========================================================================
 	class FlickReward : public Reward {
 	public:
+		static constexpr int MAX_PLAYERS = 2;
+		static constexpr int HISTORY_SIZE = 20;
+		static constexpr int MIN_DRIBBLE_FRAMES = 10;
+		bool onCarHistory[MAX_PLAYERS][HISTORY_SIZE] = {};
+		int historyIndex[MAX_PLAYERS] = {};
+
+		virtual void Reset(const GameState& initialState) override {
+			for (int p = 0; p < MAX_PLAYERS; p++) {
+				for (int i = 0; i < HISTORY_SIZE; i++) onCarHistory[p][i] = false;
+				historyIndex[p] = 0;
+			}
+		}
+
+		static bool BallOnCar(const Player& player, const GameState& state) {
+			Vec ballRel = state.ball.pos - player.pos;
+			return player.isOnGround && ballRel.Length2D() < 300 && ballRel.z > 40 && ballRel.z < 350;
+		}
+
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
 			if (!player.prev || !state.prev)
 				return 0;
 
-			// Was the ball on the car last step?
-			Vec prevBallRel = state.prev->ball.pos - player.prev->pos;
-			float prevHorizDist = prevBallRel.Length2D();
-			float prevVertDist = prevBallRel.z;
-			bool ballWasOnCar = player.prev->isOnGround && prevHorizDist < 300 && prevVertDist > 40 && prevVertDist < 350;
+			int pIdx = 0;
+			for (int i = 0; i < (int)state.players.size(); i++) {
+				if (&state.players[i] == &player) { pIdx = i; break; }
+			}
+			if (pIdx >= MAX_PLAYERS) pIdx = 0;
 
-			if (!ballWasOnCar)
+			// Track ball-on-car for this frame
+			onCarHistory[pIdx][historyIndex[pIdx]] = BallOnCar(player, state);
+			historyIndex[pIdx] = (historyIndex[pIdx] + 1) % HISTORY_SIZE;
+
+			// Count how many of last 20 frames had ball on car
+			int onCarCount = 0;
+			for (int i = 0; i < HISTORY_SIZE; i++)
+				if (onCarHistory[pIdx][i]) onCarCount++;
+
+			if (onCarCount < MIN_DRIBBLE_FRAMES)
 				return 0;
 
 			// Did the player jump or flip?
@@ -767,15 +794,39 @@ namespace RLGC {
 	// =========================================================================
 	class FlickWhenPressuredReward : public Reward {
 	public:
+		static constexpr int MAX_PLAYERS = 2;
+		static constexpr int HISTORY_SIZE = 20;
+		static constexpr int MIN_DRIBBLE_FRAMES = 10;
+		bool onCarHistory[MAX_PLAYERS][HISTORY_SIZE] = {};
+		int historyIndex[MAX_PLAYERS] = {};
+
+		virtual void Reset(const GameState& initialState) override {
+			for (int p = 0; p < MAX_PLAYERS; p++) {
+				for (int i = 0; i < HISTORY_SIZE; i++) onCarHistory[p][i] = false;
+				historyIndex[p] = 0;
+			}
+		}
+
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
 			if (!player.prev || !state.prev)
 				return 0;
 
-			// Was the ball on the car last step?
-			Vec prevBallRel = state.prev->ball.pos - player.prev->pos;
-			bool ballWasOnCar = player.prev->isOnGround && prevBallRel.Length2D() < 300
-				&& prevBallRel.z > 40 && prevBallRel.z < 350;
-			if (!ballWasOnCar)
+			int pIdx = 0;
+			for (int i = 0; i < (int)state.players.size(); i++) {
+				if (&state.players[i] == &player) { pIdx = i; break; }
+			}
+			if (pIdx >= MAX_PLAYERS) pIdx = 0;
+
+			// Track ball-on-car for this frame
+			onCarHistory[pIdx][historyIndex[pIdx]] = FlickReward::BallOnCar(player, state);
+			historyIndex[pIdx] = (historyIndex[pIdx] + 1) % HISTORY_SIZE;
+
+			// Count how many of last 20 frames had ball on car
+			int onCarCount = 0;
+			for (int i = 0; i < HISTORY_SIZE; i++)
+				if (onCarHistory[pIdx][i]) onCarCount++;
+
+			if (onCarCount < MIN_DRIBBLE_FRAMES)
 				return 0;
 
 			// Did the player jump or flip?
