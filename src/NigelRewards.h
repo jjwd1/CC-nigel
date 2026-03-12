@@ -63,20 +63,46 @@ namespace RLGC {
 	// =========================================================================
 	class SteeringSmoothnessPenalty : public Reward {
 	public:
-		// Track last N steer inputs to detect spammy oscillation patterns.
+		// Track last N steer/roll inputs to detect spammy oscillation patterns.
 		// Per-player history (2 players per game) so inputs don't mix.
 		static constexpr int HISTORY_SIZE = 15;
 		static constexpr int MAX_PLAYERS = 2;
 		float steerHistory[MAX_PLAYERS][HISTORY_SIZE] = {};
+		float rollHistory[MAX_PLAYERS][HISTORY_SIZE] = {};
 		int historyIndex[MAX_PLAYERS] = {};
 		bool historyFull[MAX_PLAYERS] = {};
 
 		virtual void Reset(const GameState& initialState) override {
 			for (int p = 0; p < MAX_PLAYERS; p++) {
-				for (int i = 0; i < HISTORY_SIZE; i++) steerHistory[p][i] = 0;
+				for (int i = 0; i < HISTORY_SIZE; i++) {
+					steerHistory[p][i] = 0;
+					rollHistory[p][i] = 0;
+				}
 				historyIndex[p] = 0;
 				historyFull[p] = false;
 			}
+		}
+
+		int countDirectionChanges(float* history, int startIdx, int count, bool full) {
+			int directionChanges = 0;
+			float prevVal = 0;
+			bool prevSet = false;
+
+			for (int i = 0; i < count; i++) {
+				int idx = full ? (startIdx + i) % HISTORY_SIZE : i;
+				float val = history[idx];
+
+				if (fabsf(val) < 0.1f)
+					continue;
+
+				if (prevSet && ((val > 0 && prevVal < 0) || (val < 0 && prevVal > 0))) {
+					directionChanges++;
+				}
+
+				prevVal = val;
+				prevSet = true;
+			}
+			return directionChanges;
 		}
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
@@ -90,14 +116,14 @@ namespace RLGC {
 			}
 			if (pIdx >= MAX_PLAYERS) pIdx = 0;
 
-			// On ground: track steer. In air: track yaw, but NOT while air rolling
-			// — yaw oscillation during tornado spins is legitimate aerial control.
-			bool airRolling = !player.isOnGround && fabsf(player.prevAction.roll) > 0.5f;
-			float curInput = player.isOnGround ? player.prevAction.steer :
-				(airRolling ? 0.0f : player.prevAction.yaw);
+			// On ground: track steer. In air: track yaw.
+			float curInput = player.isOnGround ? player.prevAction.steer : player.prevAction.yaw;
+			float curRoll = player.isOnGround ? 0.0f : player.prevAction.roll;
 
-			steerHistory[pIdx][historyIndex[pIdx]] = curInput;
-			historyIndex[pIdx] = (historyIndex[pIdx] + 1) % HISTORY_SIZE;
+			int idx = historyIndex[pIdx];
+			steerHistory[pIdx][idx] = curInput;
+			rollHistory[pIdx][idx] = curRoll;
+			historyIndex[pIdx] = (idx + 1) % HISTORY_SIZE;
 			if (historyIndex[pIdx] == 0) historyFull[pIdx] = true;
 
 			int count = historyFull[pIdx] ? HISTORY_SIZE : historyIndex[pIdx];
@@ -106,31 +132,15 @@ namespace RLGC {
 
 			float penalty = 0;
 
-			// Count direction changes over the history window.
-			// If the bot is spamming left-right, we'll see many sign flips.
-			int directionChanges = 0;
-			float prevVal = 0;
-			bool prevSet = false;
+			// Count direction changes over the history window for steer/yaw and roll.
+			int steerChanges = countDirectionChanges(steerHistory[pIdx], historyIndex[pIdx], count, historyFull[pIdx]);
+			int rollChanges = countDirectionChanges(rollHistory[pIdx], historyIndex[pIdx], count, historyFull[pIdx]);
 
-			for (int i = 0; i < count; i++) {
-				int idx = historyFull[pIdx] ? (historyIndex[pIdx] + i) % HISTORY_SIZE : i;
-				float val = steerHistory[pIdx][idx];
-
-				if (fabsf(val) < 0.1f)
-					continue;
-
-				if (prevSet && ((val > 0 && prevVal < 0) || (val < 0 && prevVal > 0))) {
-					directionChanges++;
-				}
-
-				prevVal = val;
-				prevSet = true;
-			}
-
-			// 5+ direction changes in 1 second = spamming
-			// Legitimate turns rarely flip direction more than 4 times in a second
-			if (directionChanges >= 5)
-				penalty -= 0.3f * directionChanges;
+			// 5+ direction changes in 15 frames = spamming
+			if (steerChanges >= 5)
+				penalty -= 0.3f * steerChanges;
+			if (rollChanges >= 5)
+				penalty -= 0.3f * rollChanges;
 
 			// Also check physical angular velocity oscillation
 			float curYawVel = player.angVel.z;
@@ -225,7 +235,13 @@ namespace RLGC {
 			float forwardDot = player.rotMat.forward.Dot(ballRelative);
 			float orientScore = RS_MAX(0, upDot * 0.5f + forwardDot * 0.5f);
 
-			return distScore * (0.4f + 0.3f * heightScore + 0.3f * orientScore);
+			// Goal direction bonus: more reward when carrying toward opponent goal
+			float oppGoalY = (player.team == Team::BLUE) ? CommonValues::BACK_WALL_Y : -CommonValues::BACK_WALL_Y;
+			Vec dirToGoal = (Vec(0, oppGoalY, state.ball.pos.z) - state.ball.pos).Normalized();
+			float goalDot = state.ball.vel.Normalized().Dot(dirToGoal);
+			float goalMult = 0.5f + 0.5f * RS_MAX(0.0f, goalDot); // 0.5 base, up to 1.0
+
+			return distScore * (0.4f + 0.3f * heightScore + 0.3f * orientScore) * goalMult;
 		}
 	};
 
@@ -282,7 +298,13 @@ namespace RLGC {
 			// Scale by height — higher touches are harder and more rewarding
 			float heightBonus = RS_MIN(1.0f, state.ball.pos.z / CommonValues::CEILING_Z);
 
-			return 0.5f + 0.5f * heightBonus;
+			// Bonus if touch sends ball toward opponent goal
+			float oppGoalY = (player.team == Team::BLUE) ? CommonValues::BACK_WALL_Y : -CommonValues::BACK_WALL_Y;
+			Vec dirToGoal = (Vec(0, oppGoalY, state.ball.pos.z) - state.ball.pos).Normalized();
+			float goalDot = state.ball.vel.Normalized().Dot(dirToGoal);
+			float goalMult = 0.6f + 0.4f * RS_MAX(0.0f, goalDot); // 0.6 base, up to 1.0
+
+			return (0.5f + 0.5f * heightBonus) * goalMult;
 		}
 	};
 
@@ -426,6 +448,69 @@ namespace RLGC {
 	};
 
 	// =========================================================================
+	// Flip reset goal: huge reward for scoring within 3 seconds of a flip reset.
+	// Teaches the bot to convert flip resets into actual goals.
+	// =========================================================================
+	class FlipResetGoalReward : public Reward {
+	public:
+		static constexpr int MAX_PLAYERS = 2;
+		static constexpr int GOAL_WINDOW_TICKS = 45; // ~3 seconds at 15 steps/sec (tickSkip=8)
+		bool hadFlipReset[MAX_PLAYERS] = {};
+		int ticksSinceReset[MAX_PLAYERS] = {};
+
+		virtual void Reset(const GameState& initialState) override {
+			for (int p = 0; p < MAX_PLAYERS; p++) {
+				hadFlipReset[p] = false;
+				ticksSinceReset[p] = 0;
+			}
+		}
+
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			if (!player.prev)
+				return 0;
+
+			int pIdx = 0;
+			for (int i = 0; i < (int)state.players.size(); i++) {
+				if (&state.players[i] == &player) { pIdx = i; break; }
+			}
+			if (pIdx >= MAX_PLAYERS) pIdx = 0;
+
+			// Detect flip reset
+			bool gotResetNow = !player.isOnGround && state.ball.pos.z > 300 &&
+				(player.prev->hasDoubleJumped || player.prev->hasFlipped) &&
+				!player.hasDoubleJumped && !player.hasFlipped &&
+				player.ballTouchedStep;
+
+			if (gotResetNow) {
+				hadFlipReset[pIdx] = true;
+				ticksSinceReset[pIdx] = 0;
+			}
+
+			if (hadFlipReset[pIdx]) {
+				ticksSinceReset[pIdx]++;
+
+				// Goal scored while we have an active flip reset window
+				if (state.goalScored && isFinal) {
+					// Check if this player's team scored
+					float oppGoalY = (player.team == Team::BLUE) ? CommonValues::BACK_WALL_Y : -CommonValues::BACK_WALL_Y;
+					bool weScored = (state.ball.pos.y * oppGoalY) > 0;
+					if (weScored) {
+						hadFlipReset[pIdx] = false;
+						return 1.0f;
+					}
+				}
+
+				// Window expired or landed
+				if (ticksSinceReset[pIdx] > GOAL_WINDOW_TICKS || player.isOnGround) {
+					hadFlipReset[pIdx] = false;
+				}
+			}
+
+			return 0;
+		}
+	};
+
+	// =========================================================================
 	// Aerial possession: in air with ball nearby (encourages staying close to ball in air)
 	// =========================================================================
 	class AerialPossessionReward : public Reward {
@@ -441,7 +526,13 @@ namespace RLGC {
 			if (dist > possessionDist)
 				return 0;
 
-			return 1.0f - (dist / possessionDist);
+			// Goal direction: more reward when near ball heading toward opponent goal
+			float oppGoalY = (player.team == Team::BLUE) ? CommonValues::BACK_WALL_Y : -CommonValues::BACK_WALL_Y;
+			Vec dirToGoal = (Vec(0, oppGoalY, state.ball.pos.z) - state.ball.pos).Normalized();
+			float goalDot = state.ball.vel.Normalized().Dot(dirToGoal);
+			float goalMult = 0.5f + 0.5f * RS_MAX(0.0f, goalDot); // 0.5 base, up to 1.0
+
+			return (1.0f - (dist / possessionDist)) * goalMult;
 		}
 	};
 
@@ -773,7 +864,14 @@ namespace RLGC {
 				return 0;
 
 			float airBonus = RS_MIN(1.0f, RS_MAX(0.0f, player.vel.z) / 1000.0f);
-			return baseReward + airBonus;
+
+			// Prefer going for aerials heading toward opponent goal
+			float oppGoalY = (player.team == Team::BLUE) ? CommonValues::BACK_WALL_Y : -CommonValues::BACK_WALL_Y;
+			Vec dirToGoal = (Vec(0, oppGoalY, state.ball.pos.z) - state.ball.pos).Normalized();
+			float goalDot = state.ball.vel.Normalized().Dot(dirToGoal);
+			float goalMult = 0.5f + 0.5f * RS_MAX(0.0f, goalDot); // 0.5 base, up to 1.0
+
+			return (baseReward + airBonus) * goalMult;
 		}
 	};
 
@@ -912,7 +1010,20 @@ namespace RLGC {
 	// =========================================================================
 	class RelaxedFaceBallReward : public Reward {
 	public:
+		bool ballHit = false;
+
+		virtual void Reset(const GameState& initialState) override {
+			ballHit = false;
+		}
+
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			if (!ballHit) {
+				if (state.ball.vel.Length() > 100)
+					ballHit = true;
+				else
+					return 0;
+			}
+
 			Vec dirToBall = (state.ball.pos - player.pos).Normalized();
 			float dot = player.rotMat.forward.Dot(dirToBall);
 

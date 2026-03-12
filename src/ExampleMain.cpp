@@ -39,16 +39,17 @@ EnvCreateResult EnvCreateFunc(int index) {
 
 		// --- Aerial mechanics ---
 		// Boosted to incentivize aerial play over ground dribbling.
-		{ new GoForAerialReward(300.0f), 12.0f },      // Move toward loose balls in the air (bumped 8->12)
-		{ new AirDribbleReward(400.0f, 150.0f), 7.5f }, // Carry ball in air (reduced 10->7.5)
-		{ new AirRollDribbleReward(400.0f, 300.0f), 1.0f }, // Air roll during air dribble
-		{ new AerialTouchReward(200.0f), 30.0f },       // Touch ball while high (bumped 20->30)
-		{ new AerialPossessionReward(400.0f), 3.0f },    // Stay near ball in air (tightened 500->400u)
+		{ new GoForAerialReward(300.0f), 8.0f },       // Move toward loose balls in the air (reduced 12->8)
+		{ new AirDribbleReward(400.0f, 150.0f), 5.0f }, // Carry ball in air (reduced 7.5->5)
+		{ new AirRollDribbleReward(400.0f, 300.0f), 0.5f }, // Air roll during air dribble
+		{ new AerialTouchReward(200.0f), 20.0f },       // Touch ball while high (reduced 30->20)
+		{ new AerialPossessionReward(400.0f), 2.0f },    // Stay near ball in air (reduced 3->2)
 
 		// --- Flip resets ---
 		{ new FlipResetReward(), 80.0f },               // Get a flip reset (rare, big event)
 		{ new FlipResetFollowUpReward(), 50.0f },       // Use the regained flip after reset
 		{ new ChainedFlipResetReward(), 100.0f },       // Double/triple reset chains (escalating)
+		{ new FlipResetGoalReward(), 500.0f },          // Score within 3s of flip reset (huge event)
 
 		// --- Touch quality ---
 		{ new StrongTouchReward(20, 100), 5.0f },       // Powerful hits when shooting
@@ -82,7 +83,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new GoalReward(), 300.0f },                   // Score goals (THE objective)
 		{ new ZeroSumReward(new BumpReward(), 0.5f), 2.0f },
 		{ new ZeroSumReward(new DemoReward(), 0.5f), 3.0f },
-		{ new SaveReward(), 0.3f },
+		{ new SaveReward(), 1.0f },                    // Save the ball (bumped 0.3->1.0)
 		{ new ShotReward(), 2.0f },
 	};
 
