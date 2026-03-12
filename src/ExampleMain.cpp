@@ -40,11 +40,10 @@ EnvCreateResult EnvCreateFunc(int index) {
 		// --- Aerial mechanics ---
 		// Boosted to incentivize aerial play over ground dribbling.
 		{ new GoForAerialReward(300.0f), 12.0f },      // Move toward loose balls in the air (bumped 8->12)
-		{ new AirDribbleReward(400.0f, 150.0f), 10.0f }, // Carry ball in air (bumped 5->10)
+		{ new AirDribbleReward(400.0f, 150.0f), 7.5f }, // Carry ball in air (reduced 10->7.5)
 		{ new AirRollDribbleReward(400.0f, 300.0f), 1.0f }, // Air roll during air dribble
-		{ new AerialTouchReward(200.0f), 20.0f },       // Touch ball while high (was 15, lowered minHeight 250->200)
-		{ new AerialPossessionReward(500.0f), 3.0f },    // Stay near ball in air (bumped 1.5->3)
-		{ new BallHeightNearCarReward(800.0f), 1.5f },   // Ball high with car nearby (was 0.5, wider range)
+		{ new AerialTouchReward(200.0f), 30.0f },       // Touch ball while high (bumped 20->30)
+		{ new AerialPossessionReward(400.0f), 3.0f },    // Stay near ball in air (tightened 500->400u)
 
 		// --- Flip resets ---
 		{ new FlipResetReward(), 80.0f },               // Get a flip reset (rare, big event)
@@ -52,7 +51,6 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new ChainedFlipResetReward(), 100.0f },       // Double/triple reset chains (escalating)
 
 		// --- Touch quality ---
-		{ new ControlledTouchReward(), 5.0f },          // Gentle touches for dribble control
 		{ new StrongTouchReward(20, 100), 5.0f },       // Powerful hits when shooting
 		{ new TouchBallReward(), 1.0f },                // Any ball touch (baseline)
 		{ new TouchAccelReward(), 0.05f },              // Speed up ball on touch
@@ -67,8 +65,8 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new KickoffReward(), 10.0f },                 // Flip toward ball on kickoff (was 3, bumped)
 
 		// --- Approach & orientation ---
-		{ new FaceBallReward(), 0.15f },                // Face toward ball (continuous)
-		{ new VelocityPlayerToBallReward(), 1.0f },     // Move toward ball (continuous)
+		{ new RelaxedFaceBallReward(), 0.15f },         // Face toward ball (dead zone — no micro-corrections)
+		{ new VelocityPlayerToBallReward(), 0.6f },     // Move toward ball (continuous, reduced 1.0->0.6)
 
 		// --- Ball toward goal (zero-sum so opponent is penalized) ---
 		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 2.0f },
@@ -78,7 +76,6 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new SeekBoostReward(50.0f), 4.0f },           // Move toward nearest pad when boost low (bumped 2->4)
 		{ new SaveBoostReward(), 0.3f },                // Don't waste all boost (continuous)
 		{ new WasteBoostPenalty(), 1.5f },              // Don't press boost with 0 boost (bumped 0.5->1.5)
-		{ new LowBoostAerialPenalty(40.0f), 3.0f },    // Penalize going aerial with low boost (threshold 40, height 200)
 
 		// --- Game events - these must dominate to prevent loops ---
 		{ new GoalReward(), 300.0f },                   // Score goals (THE objective)

@@ -592,34 +592,66 @@ namespace RLGC {
 	// =========================================================================
 	class WallToAirReward : public Reward {
 	public:
+		static constexpr int MAX_PLAYERS = 2;
+
+		// Track: was the bot on the wall with the ball nearby?
+		bool wasOnWallWithBall[MAX_PLAYERS] = {};
+
+		virtual void Reset(const GameState& initialState) override {
+			for (int p = 0; p < MAX_PLAYERS; p++)
+				wasOnWallWithBall[p] = false;
+		}
+
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
 			if (!player.prev)
 				return 0;
 
-			// Was on wall last step?
-			bool prevOnWall = player.prev->isOnGround && player.prev->pos.z > 200 &&
-				(fabsf(player.prev->pos.x) > 3500 || fabsf(player.prev->pos.y) > 4600);
+			int pIdx = 0;
+			for (int i = 0; i < (int)state.players.size(); i++) {
+				if (&state.players[i] == &player) { pIdx = i; break; }
+			}
+			if (pIdx >= MAX_PLAYERS) pIdx = 0;
 
-			if (!prevOnWall)
+			// Step 1: Detect "on wall with ball"
+			bool onWall = player.isOnGround && player.pos.z > 200 &&
+				(fabsf(player.pos.x) > 3500 || fabsf(player.pos.y) > 4600);
+			float ballDistNow = player.pos.Dist(state.ball.pos);
+
+			if (onWall && ballDistNow < 600) {
+				wasOnWallWithBall[pIdx] = true;
+			}
+
+			// Reset if back on ground and not on wall (drove back down)
+			if (player.isOnGround && !onWall) {
+				wasOnWallWithBall[pIdx] = false;
+			}
+
+			// Step 2: Detect transition to airborne after being on wall with ball
+			// Uses the flag instead of checking previous frame — avoids missing
+			// the event if isOnGround flickered for a frame during the jump.
+			if (player.isOnGround || !wasOnWallWithBall[pIdx])
 				return 0;
 
-			// Now airborne?
-			if (player.isOnGround)
+			// Step 3: Ball must be elevated (bot popped/carried it up)
+			if (state.ball.pos.z < 200)
 				return 0;
 
-			// Need boost to actually reach the ball after leaving the wall
-			if (player.boost < 15)
-				return 0;
-
-			// Ball should be nearby and at a decent height
-			float ballDist = player.pos.Dist(state.ball.pos);
-			if (ballDist > 800 || state.ball.pos.z < 200)
-				return 0;
-
-			// Moving toward ball?
+			// Step 4: Moving toward ball (actually going after it)
 			Vec dirToBall = (state.ball.pos - player.pos).Normalized();
 			float speedToBall = player.vel.Dot(dirToBall);
 			if (speedToBall < 0)
+				return 0;
+
+			// Full sequence confirmed — clear the flag (one-time event)
+			wasOnWallWithBall[pIdx] = false;
+
+			// Don't reward if low boost — no penalty, just no incentive
+			if (player.boost < 25)
+				return 0;
+
+			// Good play — reward jumping off wall toward ball with enough boost
+			float ballDist = player.pos.Dist(state.ball.pos);
+			if (ballDist > 800)
 				return 0;
 
 			float distScore = 1.0f - (ballDist / 800.0f);
@@ -725,52 +757,16 @@ namespace RLGC {
 			float velScore = RS_MIN(1.0f, speedToBall / 1500.0f);
 			float distScore = 1.0f - (ballDist / 2500.0f);
 
-			// Bonus for actually being airborne and going up toward it
-			float airBonus = 0;
+			float baseReward = velScore * distScore;
+
+			// Airborne and going up: full reward + bonus
 			if (!player.isOnGround && player.vel.z > 100) {
-				airBonus = RS_MIN(1.0f, player.vel.z / 1000.0f) * 0.5f;
+				float airBonus = RS_MIN(1.0f, player.vel.z / 1000.0f);
+				return baseReward + airBonus;
 			}
 
-			return velScore * distScore + airBonus;
-		}
-	};
-
-	// =========================================================================
-	// Low boost aerial penalty: penalize committing to wall/aerial play with
-	// very low boost. Teaches the bot to grab boost before going airborne.
-	// =========================================================================
-	class LowBoostAerialPenalty : public Reward {
-	public:
-		float boostThreshold;
-		LowBoostAerialPenalty(float boostThreshold = 40.0f) : boostThreshold(boostThreshold) {}
-
-		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
-			if (player.boost > boostThreshold)
-				return 0;
-
-			// Detect on-wall: isOnGround + elevated + near wall edge
-			bool onWall = player.isOnGround && player.pos.z > 200 &&
-				(fabsf(player.pos.x) > 3500 || fabsf(player.pos.y) > 4600);
-
-			// Penalize being airborne and elevated
-			bool airborne = !player.isOnGround && player.pos.z > 200;
-
-			if (!onWall && !airborne)
-				return 0;
-
-			// Scale penalty by height — higher up with no boost is worse
-			float heightPenalty = RS_MIN(1.0f, player.pos.z / 1000.0f);
-
-			// Slight forgiveness if very close to ball (committed to a touch)
-			float ballDist = player.pos.Dist(state.ball.pos);
-			if (ballDist < 200)
-				return -0.2f * heightPenalty;
-
-			// Lighter penalty on wall (still has time to drop down and get boost)
-			if (onWall)
-				return -0.5f * heightPenalty;
-
-			return -1.0f * heightPenalty;
+			// On ground: reduced — just driving toward it isn't the goal
+			return baseReward * 0.3f;
 		}
 	};
 
@@ -867,6 +863,27 @@ namespace RLGC {
 				return -1.0f;
 
 			return 0;
+		}
+	};
+
+	// =========================================================================
+	// Relaxed face ball: like FaceBallReward but with a dead zone.
+	// No reward when already roughly facing the ball (within ~20 degrees).
+	// Prevents obsessive micro-corrections that cause steering jitter.
+	// =========================================================================
+	class RelaxedFaceBallReward : public Reward {
+	public:
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			Vec dirToBall = (state.ball.pos - player.pos).Normalized();
+			float dot = player.rotMat.forward.Dot(dirToBall);
+
+			// Already facing ball within ~20 degrees (dot > 0.94) — no reward needed
+			if (dot > 0.94f)
+				return 0;
+
+			// Scale: further off-target = more reward for turning toward ball
+			// Ranges from 0 (at 20 degrees off) to 1 (facing completely away)
+			return (0.94f - dot) / 1.94f;
 		}
 	};
 
