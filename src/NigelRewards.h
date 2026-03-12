@@ -80,8 +80,11 @@ namespace RLGC {
 			if (!player.prev)
 				return 0;
 
-			// Record current steer input (on ground = steer, in air = yaw)
-			float curInput = player.isOnGround ? player.prevAction.steer : player.prevAction.yaw;
+			// On ground: track steer. In air: track yaw, but NOT while air rolling
+			// — yaw oscillation during tornado spins is legitimate aerial control.
+			bool airRolling = !player.isOnGround && fabsf(player.prevAction.roll) > 0.5f;
+			float curInput = player.isOnGround ? player.prevAction.steer :
+				(airRolling ? 0.0f : player.prevAction.yaw);
 
 			steerHistory[historyIndex] = curInput;
 			historyIndex = (historyIndex + 1) % HISTORY_SIZE;
@@ -116,9 +119,9 @@ namespace RLGC {
 				prevSet = true;
 			}
 
-			// 4+ direction changes in 1 second = spamming
-			// Legitimate turns rarely flip direction more than 3 times in a second
-			if (directionChanges >= 4)
+			// 5+ direction changes in 1 second = spamming
+			// Legitimate turns rarely flip direction more than 4 times in a second
+			if (directionChanges >= 5)
 				penalty -= 0.3f * directionChanges;
 
 			// Also check physical angular velocity oscillation
