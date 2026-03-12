@@ -56,24 +56,72 @@ namespace RLGC {
 	};
 
 	// =========================================================================
-	// Steering smoothness: penalize rapid yaw oscillation (jittering).
-	// Detects when angular velocity flips sign between steps — the car is
-	// alternating steer left/right every tick. Small penalty so it doesn't
-	// prevent legitimate sharp turns, just discourages needless oscillation.
+	// Steering smoothness: penalize spammy left-right input oscillation.
+	// Tracks a 5-frame history of steer/yaw inputs and counts direction
+	// changes. 2+ flips in 5 frames = spam. Works on ground AND air.
+	// Also checks physical angular velocity oscillation.
 	// =========================================================================
 	class SteeringSmoothnessPenalty : public Reward {
 	public:
+		// Track last N steer inputs to detect spammy oscillation patterns
+		// (not just frame-to-frame, but also left-left-right-right patterns)
+		static constexpr int HISTORY_SIZE = 5;
+		float steerHistory[HISTORY_SIZE] = {};
+		int historyIndex = 0;
+		bool historyFull = false;
+
+		virtual void Reset(const GameState& initialState) override {
+			for (int i = 0; i < HISTORY_SIZE; i++) steerHistory[i] = 0;
+			historyIndex = 0;
+			historyFull = false;
+		}
+
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
 			if (!player.prev)
 				return 0;
 
-			// Only care about ground movement (air has different controls)
-			if (!player.isOnGround)
+			// Record current steer input (on ground = steer, in air = yaw)
+			float curInput = player.isOnGround ? player.prevAction.steer : player.prevAction.yaw;
+
+			steerHistory[historyIndex] = curInput;
+			historyIndex = (historyIndex + 1) % HISTORY_SIZE;
+			if (historyIndex == 0) historyFull = true;
+
+			int count = historyFull ? HISTORY_SIZE : historyIndex;
+			if (count < 3)
 				return 0;
 
 			float penalty = 0;
 
-			// 1. Angular velocity oscillation (car physically turning back and forth)
+			// Count direction changes over the history window.
+			// If the bot is spamming left-right, we'll see many sign flips.
+			int directionChanges = 0;
+			float prevVal = 0;
+			bool prevSet = false;
+
+			for (int i = 0; i < count; i++) {
+				// Read in chronological order
+				int idx = historyFull ? (historyIndex + i) % HISTORY_SIZE : i;
+				float val = steerHistory[idx];
+
+				// Skip near-zero inputs (dead zone)
+				if (fabsf(val) < 0.1f)
+					continue;
+
+				if (prevSet && ((val > 0 && prevVal < 0) || (val < 0 && prevVal > 0))) {
+					directionChanges++;
+				}
+
+				prevVal = val;
+				prevSet = true;
+			}
+
+			// 2+ direction changes in 5 frames = spamming
+			// 2 changes = mild, 3+ = heavy spam
+			if (directionChanges >= 2)
+				penalty -= 0.3f * directionChanges;
+
+			// Also check physical angular velocity oscillation
 			float curYawVel = player.angVel.z;
 			float prevYawVel = player.prev->angVel.z;
 
@@ -84,17 +132,6 @@ namespace RLGC {
 					float magnitude = RS_MIN(1.0f, (fabsf(curYawVel) + fabsf(prevYawVel)) / 6.0f);
 					penalty -= magnitude;
 				}
-			}
-
-			// 2. Steer input oscillation (catches kickoff jitter when car is stationary)
-			float curSteer = player.prevAction.steer;
-			float prevSteer = player.prev->prevAction.steer;
-
-			if (fabsf(curSteer) > 0.1f && fabsf(prevSteer) > 0.1f) {
-				bool steerFlipped = (curSteer > 0 && prevSteer < 0) ||
-					(curSteer < 0 && prevSteer > 0);
-				if (steerFlipped)
-					penalty -= 0.5f;
 			}
 
 			return penalty;
