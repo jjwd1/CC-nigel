@@ -39,11 +39,11 @@ EnvCreateResult EnvCreateFunc(int index) {
 
 		// --- Aerial mechanics ---
 		// Boosted to incentivize aerial play over ground dribbling.
-		{ new GoForAerialReward(300.0f), 8.0f },       // Move toward loose balls in the air (bumped)
-		{ new AirDribbleReward(400.0f, 150.0f), 5.0f }, // Carry ball in air
+		{ new GoForAerialReward(300.0f), 12.0f },      // Move toward loose balls in the air (bumped 8->12)
+		{ new AirDribbleReward(400.0f, 150.0f), 10.0f }, // Carry ball in air (bumped 5->10)
 		{ new AirRollDribbleReward(400.0f, 300.0f), 1.0f }, // Air roll during air dribble
 		{ new AerialTouchReward(200.0f), 20.0f },       // Touch ball while high (was 15, lowered minHeight 250->200)
-		{ new AerialPossessionReward(500.0f), 1.5f },    // Stay near ball in air (was 0.75)
+		{ new AerialPossessionReward(500.0f), 3.0f },    // Stay near ball in air (bumped 1.5->3)
 		{ new BallHeightNearCarReward(800.0f), 1.5f },   // Ball high with car nearby (was 0.5, wider range)
 
 		// --- Flip resets ---
@@ -61,7 +61,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new SpeedReward(), 0.15f },                   // Keep moving (continuous, keep tiny)
 		{ new AirReward(), 0.3f },                      // Reward for being airborne (was 0.08)
 		{ new WavedashReward(), 0.5f },                 // Wavedash detection (event)
-		{ new SteeringSmoothnessPenalty(), 0.8f },      // Penalize steering jitter (bumped, + kickoff fix)
+		{ new SteeringSmoothnessPenalty(), 2.0f },      // Penalize steering jitter (bumped 0.8->2.0)
 
 		// --- Kickoff ---
 		{ new KickoffReward(), 10.0f },                 // Flip toward ball on kickoff (was 3, bumped)
@@ -75,9 +75,9 @@ EnvCreateResult EnvCreateFunc(int index) {
 
 		// --- Boost management ---
 		{ new PickupBoostReward(), 5.0f },              // Collect boost pads (event, was 3)
-		{ new SeekBoostReward(50.0f), 2.0f },           // Move toward nearest pad when boost low
+		{ new SeekBoostReward(50.0f), 4.0f },           // Move toward nearest pad when boost low (bumped 2->4)
 		{ new SaveBoostReward(), 0.3f },                // Don't waste all boost (continuous)
-		{ new WasteBoostPenalty(), 0.5f },              // Don't press boost with 0 boost
+		{ new WasteBoostPenalty(), 1.5f },              // Don't press boost with 0 boost (bumped 0.5->1.5)
 		{ new LowBoostAerialPenalty(40.0f), 3.0f },    // Penalize going aerial with low boost (threshold 40, height 200)
 
 		// --- Game events - these must dominate to prevent loops ---
@@ -99,16 +99,16 @@ EnvCreateResult EnvCreateFunc(int index) {
 	//   15% kickoff (normal gameplay + kickoff flip practice)
 	//    5% ball on car (ground dribble/flick — reduced, already dominant)
 	//   15% wall ball (drive up walls, wall-to-air)
-	//   15% air dribble setup (already airborne near ball)
-	//   25% loose aerial ball (ball floating in air — biggest gap to fill)
+	//   20% air dribble setup (already airborne near ball, bumped 15->20)
+	//   20% loose aerial ball (ball floating in air, reduced 25->20)
 	//   10% ball rolling to car (catch & carry practice)
 	//   15% random (general adaptation)
 	auto stateSetter = new CombinedState({
 		{ new KickoffState(), 15.0f },
 		{ new BallOnCarState(), 5.0f },
 		{ new WallBallState(), 15.0f },
-		{ new AirDribbleSetup(), 15.0f },
-		{ new LooseAerialBallState(), 25.0f },
+		{ new AirDribbleSetup(), 20.0f },
+		{ new LooseAerialBallState(), 20.0f },
 		{ new BallRollingToCarState(), 10.0f },
 		{ new RandomState(true, true, true), 15.0f },
 	});
