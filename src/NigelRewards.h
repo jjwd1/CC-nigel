@@ -822,43 +822,77 @@ namespace RLGC {
 	// =========================================================================
 	class KickoffReward : public Reward {
 	public:
-		bool wasKickoff = false;
+		bool inApproach = false;    // Ball hasn't been hit yet
+		bool waitingToCheck = false; // Ball hit, counting down to check
+		int ticksSinceHit = 0;
+		// ~1.5 seconds after hit at 15 steps/sec (tickSkip=8) ≈ 22 ticks
+		static constexpr int CHECK_DELAY_TICKS = 22;
 
 		virtual void Reset(const GameState& initialState) override {
-			wasKickoff = true;
+			inApproach = true;
+			waitingToCheck = false;
+			ticksSinceHit = 0;
 		}
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
-			if (!wasKickoff)
-				return 0;
+			// Phase 1: Approaching the ball — reward flipping and speed
+			if (inApproach) {
+				// Not a kickoff episode if ball isn't at center
+				if (fabsf(state.ball.pos.x) > 50 || fabsf(state.ball.pos.y) > 50) {
+					inApproach = false;
+					return 0;
+				}
 
-			// Not a kickoff episode if ball isn't at center
-			if (fabsf(state.ball.pos.x) > 50 || fabsf(state.ball.pos.y) > 50) {
-				wasKickoff = false;
-				return 0;
+				// Ball hit — transition to waiting phase
+				if (state.ball.vel.Length() > 100) {
+					inApproach = false;
+					waitingToCheck = true;
+					ticksSinceHit = 0;
+					return 0;
+				}
+
+				float reward = 0;
+
+				// Reward speed toward ball
+				Vec dirToBall = (state.ball.pos - player.pos).Normalized();
+				float speedToBall = player.vel.Dot(dirToBall);
+				reward += RS_MAX(0, speedToBall / CommonValues::CAR_MAX_SPEED);
+
+				// Bonus for flipping
+				if (player.isFlipping || player.hasFlipped)
+					reward += 1.0f;
+
+				return reward;
 			}
 
-			// Kickoff is over once ball has been hit (gains velocity).
-			// This is more reliable than lastTouchCarID (which may be stale)
-			// or ballTouchedStep (which only checks one player).
-			if (state.ball.vel.Length() > 100) {
-				wasKickoff = false;
-				return 0;
+			// Phase 2: Wait 4 seconds then check ball position
+			if (waitingToCheck) {
+				ticksSinceHit++;
+
+				// Episode ended before we could check (goal scored)
+				if (isFinal) {
+					waitingToCheck = false;
+					return 0;
+				}
+
+				if (ticksSinceHit >= CHECK_DELAY_TICKS) {
+					waitingToCheck = false;
+
+					// Is the ball on the opponent's half?
+					float oppGoalY = (player.team == Team::BLUE) ? 5120.0f : -5120.0f;
+					bool ballOnOppSide = (oppGoalY > 0) ? (state.ball.pos.y > 0) : (state.ball.pos.y < 0);
+
+					if (ballOnOppSide) {
+						// Scale by how deep into opponent half
+						float depth = fabsf(state.ball.pos.y) / 5120.0f;
+						return 0.5f + 0.5f * depth;
+					}
+
+					return 0;
+				}
 			}
 
-			float reward = 0;
-
-			// Reward speed toward ball (flip gives ~1400+ speed vs ~1200 driving)
-			Vec dirToBall = (state.ball.pos - player.pos).Normalized();
-			float speedToBall = player.vel.Dot(dirToBall);
-			reward += RS_MAX(0, speedToBall / CommonValues::CAR_MAX_SPEED);
-
-			// Bonus for flipping (the key mechanic we want to teach)
-			if (player.isFlipping || player.hasFlipped) {
-				reward += 1.0f;
-			}
-
-			return reward;
+			return 0;
 		}
 	};
 }
