@@ -238,7 +238,7 @@ int main(int argc, char* argv[]) {
 	LearnerConfig cfg = {};
 	cfg.checkpointFolder = "../../../checkpoints";
 
-	cfg.deviceType = LearnerDeviceType::GPU_CUDA;
+	cfg.deviceType = LearnerDeviceType::CPU;
 
 	cfg.tickSkip = 8;
 	cfg.actionDelay = cfg.tickSkip - 1;
@@ -264,9 +264,9 @@ int main(int argc, char* argv[]) {
 	cfg.ppo.policyLR = 1.0e-4;
 	cfg.ppo.criticLR = 1.0e-4;
 
-	cfg.ppo.sharedHead.layerSizes = { 512, 512 };
-	cfg.ppo.policy.layerSizes = { 512, 512, 512 };
-	cfg.ppo.critic.layerSizes = { 512, 512, 512 };
+	cfg.ppo.sharedHead.layerSizes = { 256, 256 };
+	cfg.ppo.policy.layerSizes = { 256, 256, 256 };
+	cfg.ppo.critic.layerSizes = { 256, 256, 256 };
 
 	auto optim = ModelOptimType::ADAM;
 	cfg.ppo.policy.optimType = optim;
