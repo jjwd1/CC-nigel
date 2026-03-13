@@ -9,6 +9,7 @@
 #include <RLGymCPP/StateSetters/KickoffState.h>
 #include <RLGymCPP/StateSetters/RandomState.h>
 #include <RLGymCPP/StateSetters/CombinedState.h>
+#include <RLGymCPP/StateSetters/FuzzedKickoffState.h>
 #include <RLGymCPP/ActionParsers/DefaultAction.h>
 #include "NigelRewards.h"
 #include "NigelStateSetters.h"
@@ -27,24 +28,24 @@ EnvCreateResult EnvCreateFunc(int index) {
 
 		// --- Core mechanics: dribbling & ball carry ---
 		// (reduced — dribbling is already the bot's strongest skill)
-		{ new GroundDribbleReward(), 0.3f },            // Keep ball balanced on car (bumped back from 0.2)
-		{ new BallCarryReward(), 0.4f },                // Ball above car (ground or air, bumped back from 0.3)
-		{ new DribbleToGoalReward(), 0.65f },           // Carry ball toward opponent goal (bumped back from 0.5)
+		{ new GroundDribbleReward(), 0.7f },            // Keep ball balanced on car
+		{ new BallCarryReward(), 1.0f },                // Ball above car (ground or air)
+		{ new DribbleToGoalReward(), 2.5f },            // Carry ball toward opponent goal
 		{ new FlickReward(), 35.0f },                   // Launch ball off car with flip (event, reduced 50->35)
-		{ new FlickWhenPressuredReward(), 30.0f },      // Flick when opponent diving in / toward goal (reduced 40->30)
+		{ new FlickWhenPressuredReward(), 35.0f },      // Flick when opponent diving in / toward goal
 
 		// --- Wall play (bridge from ground to aerial) ---
-		{ new WallCarryReward(), 3.0f },                 // Carry ball up the wall (continuous)
-		{ new WallToAirReward(), 15.0f },                // Jump off wall toward ball (event, NEW)
+		{ new WallCarryReward(), 2.0f },                 // Carry ball up the wall (continuous)
+		{ new WallToAirReward(), 7.0f },                 // Jump off wall toward ball (event)
 
 		// --- Aerial mechanics ---
 		// Boosted to incentivize aerial play over ground dribbling.
-		{ new GoForAerialReward(300.0f), 8.0f },       // Move toward loose balls in the air (reduced 12->8)
-		{ new AirDribbleReward(400.0f, 150.0f), 5.0f }, // Carry ball in air (reduced 7.5->5)
+		{ new GoForAerialReward(300.0f), 4.0f },       // Move toward loose balls in the air
+		{ new AirDribbleReward(400.0f, 150.0f), 2.5f }, // Carry ball in air
 		{ new AirRollDribbleReward(400.0f, 300.0f), 0.5f }, // Air roll during air dribble
-		{ new AerialTouchReward(200.0f), 20.0f },       // Touch ball while high (reduced 30->20)
+		{ new AerialTouchReward(200.0f), 8.0f },        // Touch ball while high (boost gated)
 		{ new ChainedAerialTouchReward(), 2.0f },       // Bonus per successive aerial touch without landing
-		{ new AerialPossessionReward(400.0f), 2.0f },    // Stay near ball in air (reduced 3->2)
+		{ new AerialPossessionReward(400.0f), 1.0f },    // Stay near ball in air
 
 		// --- Flip resets ---
 		{ new FlipResetReward(), 80.0f },               // Get a flip reset (rare, big event)
@@ -55,7 +56,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 		// --- Touch quality ---
 		{ new ControlledTouchReward(), 3.0f },          // Gentle touches for dribble control
 		{ new StrongTouchReward(20, 100), 5.0f },       // Powerful hits when shooting
-		{ new TouchBallReward(), 1.0f },                // Any ball touch (baseline)
+		{ new TouchBallReward(), 0.5f },                // Any ball touch (baseline)
 		{ new TouchAccelReward(), 0.05f },              // Speed up ball on touch
 
 		// --- Movement fundamentals ---
@@ -72,12 +73,12 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new VelocityPlayerToBallReward(), 0.45f },    // Move toward ball (continuous, bumped back from 0.3)
 
 		// --- Ball toward goal (zero-sum so opponent is penalized) ---
-		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 1.0f },
+		{ new ZeroSumReward(new VelocityBallToGoalReward(), 1), 2.0f },
 
 		// --- Boost management ---
-		{ new PickupBoostReward(), 5.5f },              // Collect boost pads (event, was 5)
-		{ new BoostWhileDribblingReward(), 8.0f },      // Pick up boost while carrying ball (event)
-		{ new SeekBoostReward(50.0f), 4.4f },           // Move toward nearest pad when boost low (bumped 4->4.4)
+		{ new PickupBoostReward(), 4.0f },              // Collect boost pads (event)
+		{ new BoostWhileDribblingReward(), 4.0f },      // Pick up boost while carrying ball (event)
+		{ new SeekBoostReward(50.0f), 3.5f },           // Move toward nearest pad when boost low
 		{ new SaveBoostReward(), 0.3f },                // Don't waste all boost (continuous)
 		{ new WasteBoostPenalty(), 2.5f },              // Don't press boost with 0 boost (bumped 0.5->2.5)
 
@@ -85,8 +86,8 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new GoalReward(), 300.0f },                   // Score goals (THE objective)
 		{ new ZeroSumReward(new BumpReward(), 0.5f), 2.0f },
 		{ new ZeroSumReward(new DemoReward(), 0.5f), 3.0f },
-		{ new SaveReward(), 1.5f },                    // Save the ball (bumped 1.0->1.5)
-		{ new ShotReward(), 2.0f },
+		{ new SaveReward(), 5.0f },                    // Save the ball
+		{ new ShotReward(), 4.0f },
 	};
 
 	// === TERMINAL CONDITIONS ===
@@ -105,13 +106,9 @@ EnvCreateResult EnvCreateFunc(int index) {
 	//   10% ball rolling to car (catch & carry practice)
 	//   15% random (general adaptation)
 	auto stateSetter = new CombinedState({
-		{ new KickoffState(), 15.0f },
-		{ new BallOnCarState(), 5.0f },
-		{ new WallBallState(), 15.0f },
-		{ new AirDribbleSetup(), 20.0f },
-		{ new LooseAerialBallState(), 20.0f },
-		{ new BallRollingToCarState(), 10.0f },
-		{ new RandomState(true, true, true), 15.0f },
+		{ new RandomState(true, true, true), 70.0f },
+		{ new KickoffState(), 25.0f },
+		{ new FuzzedKickoffState(), 5.0f },
 	});
 
 	// Make the arena
@@ -241,7 +238,7 @@ int main(int argc, char* argv[]) {
 	LearnerConfig cfg = {};
 	cfg.checkpointFolder = "../../../checkpoints";
 
-	cfg.deviceType = LearnerDeviceType::GPU_CUDA;
+	cfg.deviceType = LearnerDeviceType::CPU;
 
 	cfg.tickSkip = 8;
 	cfg.actionDelay = cfg.tickSkip - 1;
@@ -250,7 +247,7 @@ int main(int argc, char* argv[]) {
 
 	cfg.randomSeed = 123;
 
-	int tsPerItr = 50'000;
+	int tsPerItr = 100'000;
 	cfg.ppo.tsPerItr = tsPerItr;
 	cfg.ppo.batchSize = tsPerItr;
 	cfg.ppo.miniBatchSize = 50'000;
@@ -258,14 +255,14 @@ int main(int argc, char* argv[]) {
 	// 3 epochs — mechanical skills need more gradient steps per batch
 	cfg.ppo.epochs = 3;
 
-	// Higher entropy for exploration of rare mechanics (flip resets, aerials)
-	cfg.ppo.entropyScale = 0.05f;
+	// Entropy scale: 0.04 (lowered from 0.05 to reduce excess randomness at 3.37B steps)
+	cfg.ppo.entropyScale = 0.04f;
 
-	// High gamma for long-horizon sequences (dribble -> flick -> goal)
-	cfg.ppo.gaeGamma = 0.99;
+	// Gamma: 0.993 gives ~6s half-life horizon (up from 0.99/4.6s at 3.37B steps)
+	cfg.ppo.gaeGamma = 0.993;
 
-	cfg.ppo.policyLR = 1.5e-4;
-	cfg.ppo.criticLR = 1.5e-4;
+	cfg.ppo.policyLR = 1.0e-4;
+	cfg.ppo.criticLR = 1.0e-4;
 
 	cfg.ppo.sharedHead.layerSizes = { 256, 256 };
 	cfg.ppo.policy.layerSizes = { 256, 256, 256 };
@@ -285,6 +282,11 @@ int main(int argc, char* argv[]) {
 	cfg.ppo.policy.addLayerNorm = addLayerNorm;
 	cfg.ppo.critic.addLayerNorm = addLayerNorm;
 	cfg.ppo.sharedHead.addLayerNorm = addLayerNorm;
+
+	cfg.trainAgainstOldVersions = true;
+	cfg.trainAgainstOldChance = 0.15f;
+
+	cfg.skillTracker.enabled = true;
 
 	cfg.sendMetrics = !renderMode;
 	cfg.renderMode = renderMode;

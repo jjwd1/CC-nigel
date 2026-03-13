@@ -32,7 +32,7 @@ namespace RLGC {
 	class GoalReward : public Reward {
 	public:
 		float concedeScale;
-		GoalReward(float concedeScale = -0.5) : concedeScale(concedeScale) {}
+		GoalReward(float concedeScale = -0.8) : concedeScale(concedeScale) {}
 
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) {
 			if (!state.goalScored)

@@ -357,13 +357,26 @@ namespace RLGC {
 	class AerialTouchReward : public Reward {
 	public:
 		float minHeight;
+		TakeoffBoostTracker takeoffTracker;
 		AerialTouchReward(float minHeight = 300.0f) : minHeight(minHeight) {}
 
+		virtual void Reset(const GameState& initialState) override { takeoffTracker.Reset(); }
+
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			int pIdx = 0;
+			for (int i = 0; i < (int)state.players.size(); i++) {
+				if (&state.players[i] == &player) { pIdx = i; break; }
+			}
+			takeoffTracker.Update(player, pIdx);
+
 			if (!player.ballTouchedStep)
 				return 0;
 
 			if (player.isOnGround || state.ball.pos.z < minHeight)
+				return 0;
+
+			// No reward if took off with less than 30 boost
+			if (takeoffTracker.Get(pIdx) < 30)
 				return 0;
 
 			// Scale by height — higher touches are harder and more rewarding
