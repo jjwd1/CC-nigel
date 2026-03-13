@@ -32,20 +32,19 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new BallCarryReward(), 1.0f },                // Ball above car (ground or air)
 		{ new DribbleToGoalReward(), 2.5f },            // Carry ball toward opponent goal
 		{ new FlickReward(), 35.0f },                   // Launch ball off car with flip (event, reduced 50->35)
-		{ new FlickWhenPressuredReward(), 35.0f },      // Flick when opponent diving in / toward goal
+		{ new FlickWhenPressuredReward(), 40.0f },      // Flick when opponent diving in / toward goal
 
 		// --- Wall play (bridge from ground to aerial) ---
-		{ new WallCarryReward(), 2.0f },                 // Carry ball up the wall (continuous)
+		{ new WallCarryReward(), 1.0f },                 // Carry ball up the wall (continuous)
 		{ new WallToAirReward(), 7.0f },                 // Jump off wall toward ball (event)
 
 		// --- Aerial mechanics ---
-		// Boosted to incentivize aerial play over ground dribbling.
-		{ new GoForAerialReward(300.0f), 4.0f },       // Move toward loose balls in the air
-		{ new AirDribbleReward(400.0f, 150.0f), 2.5f }, // Carry ball in air
+		{ new GoForAerialReward(300.0f), 2.0f },       // Move toward loose balls in the air
+		{ new AirDribbleReward(400.0f, 150.0f), 1.5f }, // Carry ball in air
 		{ new AirRollDribbleReward(400.0f, 300.0f), 0.5f }, // Air roll during air dribble
 		{ new AerialTouchReward(200.0f), 8.0f },        // Touch ball while high (boost gated)
 		{ new ChainedAerialTouchReward(), 2.0f },       // Bonus per successive aerial touch without landing
-		{ new AerialPossessionReward(400.0f), 1.0f },    // Stay near ball in air
+		{ new AerialPossessionReward(400.0f), 0.5f },    // Stay near ball in air
 
 		// --- Flip resets ---
 		{ new FlipResetReward(), 80.0f },               // Get a flip reset (rare, big event)
@@ -61,7 +60,7 @@ EnvCreateResult EnvCreateFunc(int index) {
 
 		// --- Movement fundamentals ---
 		{ new SpeedReward(), 0.15f },                   // Keep moving (continuous, keep tiny)
-		{ new AirReward(), 0.3f },                      // Reward for being airborne (was 0.08)
+		{ new AirReward(), 0.15f },                     // Reward for being airborne
 		{ new WavedashReward(), 0.5f },                 // Wavedash detection (event)
 		{ new SteeringSmoothnessPenalty(), 2.0f },      // Penalize steering jitter (bumped 0.8->2.0)
 
@@ -87,7 +86,8 @@ EnvCreateResult EnvCreateFunc(int index) {
 		{ new ZeroSumReward(new BumpReward(), 0.5f), 2.0f },
 		{ new ZeroSumReward(new DemoReward(), 0.5f), 3.0f },
 		{ new SaveReward(), 5.0f },                    // Save the ball
-		{ new ShotReward(), 4.0f },
+		{ new ShotReward(), 5.0f },
+		{ new PowerShotReward(40, 130), 10.0f },       // Powerful shots on goal, bonus for long range
 	};
 
 	// === TERMINAL CONDITIONS ===
@@ -238,7 +238,7 @@ int main(int argc, char* argv[]) {
 	LearnerConfig cfg = {};
 	cfg.checkpointFolder = "../../../checkpoints";
 
-	cfg.deviceType = LearnerDeviceType::CPU;
+	cfg.deviceType = LearnerDeviceType::GPU_CUDA;
 
 	cfg.tickSkip = 8;
 	cfg.actionDelay = cfg.tickSkip - 1;

@@ -953,16 +953,6 @@ namespace RLGC {
 			if (onCarCount < MIN_DRIBBLE_FRAMES)
 				return 0;
 
-			// Did the player jump or flip?
-			bool jumped = !player.isOnGround && player.prev->isOnGround;
-			if (!jumped && !player.isFlipping)
-				return 0;
-
-			// Did the ball gain upward velocity? (actual flick)
-			float ballUpVelGain = state.ball.vel.z - state.prev->ball.vel.z;
-			if (ballUpVelGain < 200)
-				return 0;
-
 			// Find closest opponent
 			float closestOppDist = 99999;
 			float oppSpeedToward = 0;
@@ -1060,6 +1050,36 @@ namespace RLGC {
 			float goalMult = 0.5f + 0.5f * RS_MAX(0.0f, goalDot); // 0.5 base, up to 1.0
 
 			return (baseReward + airBonus) * goalMult;
+		}
+	};
+
+	// =========================================================================
+	// Power shot: reward shots on goal that are fast, bonus for long range
+	// =========================================================================
+	class PowerShotReward : public Reward {
+	public:
+		float minBallSpeed; // minimum ball speed to qualify (uu/s)
+		float maxBallSpeed; // ball speed for max reward
+		PowerShotReward(float minBallSpeedKPH = 40.0f, float maxBallSpeedKPH = 130.0f)
+			: minBallSpeed(RLGC::Math::KPHToVel(minBallSpeedKPH)),
+			  maxBallSpeed(RLGC::Math::KPHToVel(maxBallSpeedKPH)) {}
+
+		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) override {
+			if (!player.eventState.shot)
+				return 0;
+
+			float ballSpeed = state.ball.vel.Length();
+			if (ballSpeed < minBallSpeed)
+				return 0;
+
+			float speedScore = RS_MIN(1.0f, ballSpeed / maxBallSpeed);
+
+			// Distance bonus: shots from far away are more impressive
+			float oppGoalY = (player.team == Team::BLUE) ? CommonValues::BACK_WALL_Y : -CommonValues::BACK_WALL_Y;
+			float distToGoal = fabsf(oppGoalY - player.pos.y);
+			float distScore = RS_MIN(1.0f, distToGoal / 8000.0f); // 0 at goal, 1.0 at ~8000 units
+
+			return speedScore * (0.5f + 0.5f * distScore);
 		}
 	};
 
