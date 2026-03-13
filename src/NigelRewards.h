@@ -953,6 +953,16 @@ namespace RLGC {
 			if (onCarCount < MIN_DRIBBLE_FRAMES)
 				return 0;
 
+			// Did the player jump or flip?
+			bool jumped = !player.isOnGround && player.prev->isOnGround;
+			if (!jumped && !player.isFlipping)
+				return 0;
+
+			// Did the ball gain upward velocity? (actual flick)
+			float ballUpVelGain = state.ball.vel.z - state.prev->ball.vel.z;
+			if (ballUpVelGain < 200)
+				return 0;
+
 			// Find closest opponent
 			float closestOppDist = 99999;
 			float oppSpeedToward = 0;
@@ -969,9 +979,9 @@ namespace RLGC {
 
 			float reward = 0;
 
-			// Opponent close (< 1500) and rushing in — flick is a great choice
-			if (closestOppDist < 1500 && oppSpeedToward > 200) {
-				float pressureScore = (1.0f - closestOppDist / 1500.0f);
+			// Opponent close (< 1000) and rushing in — flick is a great choice
+			if (closestOppDist < 1000 && oppSpeedToward > 300) {
+				float pressureScore = (1.0f - closestOppDist / 1000.0f);
 				float rushScore = RS_MIN(1.0f, oppSpeedToward / 1500.0f);
 				reward += pressureScore * rushScore;
 			}
