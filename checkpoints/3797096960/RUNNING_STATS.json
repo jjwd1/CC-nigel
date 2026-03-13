@@ -1,0 +1,13 @@
+{
+    "return_stat": {
+        "count": 10431150,
+        "mean": 217.246253656004,
+        "var": 314606048388.47205
+    },
+    "run_id": "3vh2ehzm",
+    "skill_ratings": {
+        "1v1": 164.41140747070313
+    },
+    "total_iterations": 69541,
+    "total_timesteps": 3797096960
+}
