@@ -264,9 +264,9 @@ int main(int argc, char* argv[]) {
 	cfg.ppo.policyLR = 1.0e-4;
 	cfg.ppo.criticLR = 1.0e-4;
 
-	cfg.ppo.sharedHead.layerSizes = { 256, 256 };
-	cfg.ppo.policy.layerSizes = { 256, 256, 256 };
-	cfg.ppo.critic.layerSizes = { 256, 256, 256 };
+	cfg.ppo.sharedHead.layerSizes = { 512, 512 };
+	cfg.ppo.policy.layerSizes = { 512, 512, 512 };
+	cfg.ppo.critic.layerSizes = { 512, 512, 512 };
 
 	auto optim = ModelOptimType::ADAM;
 	cfg.ppo.policy.optimType = optim;
